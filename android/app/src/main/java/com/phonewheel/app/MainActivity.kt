@@ -61,6 +61,7 @@ class MainActivity : Activity(), SensorEventListener {
         wheel.onCenter = { centerSteering() }
         wheel.onSettings = { openSettings() }
         wheel.onHaptic = { ms -> buzz(ms) }
+        wheel.onDetent = { haptics.detent() }
         wheel.onSteerModeChanged = { updateSteer() }
 
         sensors = getSystemService(Context.SENSOR_SERVICE) as SensorManager

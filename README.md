@@ -116,6 +116,9 @@ The **dashboard** shows shift lights (they flash blue at the shift point, and al
 
 - **Bind controls in a game:** in the game's controls menu, click the control you want to assign. Then tap **Steering**, **Throttle** or **Brake** in SETUP. The app moves only that axis for 4 seconds, so the game can't pick up the wrong one.
 - **Brake pressure feel:** pressing harder adds brake. It works by measuring how much of your thumb touches the screen. Not every phone reports this; if yours doesn't, the setting does nothing.
+- **Brake detents:** you feel a light tick in your thumb as the brake passes 25 %, 50 % and 75 % (or another spacing you choose), like notches on a real pedal. You can tell how hard you're braking without looking.
+- **Brake trace:** after each stop, the brake strip shows a white line of what you just did, plus a yellow mark and "peak xx%". Time runs left to right. It fades after a few seconds. Use it to check whether you braked hard enough at first and released smoothly down to zero.
+- **Look buttons toggle:** LOOK LEFT, RIGHT and BACK latch. Tap once to look and tap again to return; tapping another look button switches straight to it. Games only look while the button is held, so a plain tap would flick the view straight back. You can turn this off in SETUP → Buttons.
 - **Brake release smoothing:** the brake lets go more gently, which makes it easier to hold a steady trail brake with a thumb.
 - **Gyro-fused sensor:** on by default. Steering is smoother and faster, and bumps or moving in your chair don't disturb it.
 - **Speed-sensitive steering:** steering gets calmer at high speed. It needs a running game for the speed data.

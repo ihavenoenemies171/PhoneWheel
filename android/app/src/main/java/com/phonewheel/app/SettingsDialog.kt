@@ -217,6 +217,10 @@ object SettingsDialog {
 
         // ---------------------------------------------------------- pedals
         header("PEDALS")
+        slider("Brake detents", "Ticks you feel as the brake passes evenly spaced points (3 = 25/50/75%)",
+            0f, 4f, 1f, p.brakeDetents.toFloat(), { if (it < 0.5f) "off" else "${it.roundToInt()}" }) { p.brakeDetents = it.roundToInt() }
+        pct("Detent strength", "", p.hDetent) { p.hDetent = it }
+        check("Brake trace", "Shows your last brake application on the brake strip: peak, and how you released", p.brakeTrace) { p.brakeTrace = it }
         slider("Brake pressure feel", "Pressing harder adds brake (uses thumb contact size; not every phone reports it)",
             0f, 100f, 5f, p.brakePressure, { "${it.roundToInt()}%" }) { p.brakePressure = it }
         slider("Brake release smoothing", "Brake lets go more gently for steadier trail braking", 0f, 300f, 10f,
@@ -232,6 +236,9 @@ object SettingsDialog {
             { f2(it) }) { p.brkCurve = it }
 
         // ---------------------------------------------------------- other
+        header("BUTTONS")
+        check("Look buttons toggle", "Tap LOOK left/right/back once to look, tap again to return. Off = hold to look", p.lookToggle) { p.lookToggle = it }
+
         header("OTHER")
         check("Show button numbers", "vJoy button number on each key (for binding)", p.showNums) { p.showNums = it }
         root.addView(TextView(act).apply {

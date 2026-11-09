@@ -35,6 +35,7 @@ class WheelView(
     var onCenter: () -> Unit = {}
     var onSettings: () -> Unit = {}
     var onHaptic: (Long) -> Unit = {}
+    var onDetent: () -> Unit = {}
 
     // ------------------------------------------------------------------ button map (vJoy 1..32)
     private class Btn(
@@ -273,7 +274,7 @@ class WheelView(
 
     private fun release(t: Target, id: Int) {
         when (t.kind) {
-            Kind.BRAKE -> if (id == brakeOwner) { brakeOwner = -1; st.brkIn = 0f; changed() }
+            Kind.BRAKE -> if (id == brakeOwner) { brakeOwner = -1; st.brkIn = 0f; detentZone = 0; changed() }
             Kind.THROTTLE -> if (id == throttleOwner) { throttleOwner = -1; st.thr = 0f; changed() }
             Kind.PADDLE_UP -> releaseButton(1)
             Kind.PADDLE_DOWN -> releaseButton(2)
@@ -288,18 +289,37 @@ class WheelView(
         pressCount.fill(0)
         brakeOwner = -1; throttleOwner = -1; steerOwner = -1
         manualSteer = null
+        latchMask = 0
         st.thr = 0f; st.brkIn = 0f; st.brk = 0f; st.mask = 0
         changed()
     }
 
+    // look left / right / back latch on tap (games only look while the button is held)
+    private val lookButtons = intArrayOf(21, 22, 23)
+    private var latchMask = 0
+
+    private fun isLatch(num: Int) = prefs.lookToggle && num in lookButtons
+
     private fun pressButton(num: Int, vib: Long) {
+        val bit = 1 shl (num - 1)
+        if (isLatch(num)) {
+            val wasOn = latchMask and bit != 0
+            var lookMask = 0
+            for (n in lookButtons) lookMask = lookMask or (1 shl (n - 1))
+            latchMask = if (wasOn) 0 else bit           // only one look direction at a time
+            st.mask = (st.mask and lookMask.inv()) or latchMask
+            onHaptic(vib)
+            changed()
+            return
+        }
         pressCount[num]++
-        st.mask = st.mask or (1 shl (num - 1))
+        st.mask = st.mask or bit
         onHaptic(vib)
         changed()
     }
 
     private fun releaseButton(num: Int) {
+        if (isLatch(num)) return
         if (pressCount[num] > 0) pressCount[num]--
         if (pressCount[num] == 0) {
             st.mask = st.mask and (1 shl (num - 1)).inv()
@@ -336,7 +356,27 @@ class WheelView(
             val p = ((size - sizeMin) / (sizeMax - sizeMin)).coerceIn(0f, 1f)
             v = v * (1f - w) + p * w
         }
-        return v.coerceIn(0f, 1f).pow(prefs.brkCurve)
+        val out = v.coerceIn(0f, 1f).pow(prefs.brkCurve)
+        checkDetent(out)
+        return out
+    }
+
+    // --- brake detents: a tick each time the brake passes 25 / 50 / 75 % (or the chosen spacing)
+    private var detentZone = 0
+
+    private fun checkDetent(v: Float) {
+        val n = prefs.brakeDetents
+        if (n <= 0) { detentZone = 0; return }
+        val step = 1f / (n + 1)
+        // hysteresis: only change zone once clearly past a notch, so a resting thumb doesn't chatter
+        val lower = detentZone * step - 0.02f
+        val upper = (detentZone + 1) * step + 0.02f
+        if (v in lower..upper && detentZone in 0..n) return
+        val z = (v / step).toInt().coerceIn(0, n)
+        if (z != detentZone) {
+            detentZone = z
+            onDetent()
+        }
     }
 
     private fun setManualSteer(x: Float) {
@@ -360,6 +400,7 @@ class WheelView(
         fill.shader = null
 
         drawPedal(c, rBrake, st.brk, "BRAKE", red, -90f)
+        if (prefs.brakeTrace) drawBrakeTrace(c)
         drawPedal(c, rThrottle, st.thr, "THROTTLE", green, 90f)
         drawPaddle(c, rPadUp, "▲", "UP", st.mask and 1 != 0)
         drawPaddle(c, rPadDown, "▼", "DOWN", st.mask and 2 != 0)
@@ -375,6 +416,70 @@ class WheelView(
         if (!rDash.isEmpty) drawDash(c)
         if (st.bindAxis != 0) drawBindBanner(c)
         postInvalidateOnAnimation() // live dashboard / pedals
+    }
+
+    // ------------------------------------------------------------------ brake trace
+    // Records each brake application (press -> release) and draws it on the brake strip as a
+    // line: time runs left -> right, height = brake amount. Stays visible after you let go
+    // and fades out, so you can see your peak and how smoothly you released.
+    private val traceT = LongArray(600)
+    private val traceV = FloatArray(600)
+    private var traceN = 0
+    private var traceActive = false
+    private var traceEndAt = 0L
+    private var traceQuietSince = 0L
+    private var tracePeak = 0f
+
+    private fun recordTrace(now: Long) {
+        val b = st.brk
+        if (!traceActive) {
+            if (b > 0.02f) { traceActive = true; traceN = 0; tracePeak = 0f; traceQuietSince = 0L }
+            else return
+        }
+        if (traceN < traceT.size) { traceT[traceN] = now; traceV[traceN] = b; traceN++ }
+        tracePeak = max(tracePeak, b)
+        if (b <= 0.02f) {
+            if (traceQuietSince == 0L) traceQuietSince = now
+            if (now - traceQuietSince > 400) { traceActive = false; traceEndAt = now }
+        } else {
+            traceQuietSince = 0L
+        }
+    }
+
+    private fun drawBrakeTrace(c: Canvas) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        recordTrace(now)
+        if (traceN < 2) return
+        val alpha = if (traceActive) 1f else (1f - (now - traceEndAt) / 6000f)
+        if (alpha <= 0f) return
+        val r = rBrake
+        val inset = 6 * dp
+        val t0 = traceT[0]
+        val dur = max(1500L, traceT[traceN - 1] - t0).toFloat()
+        val left = r.left + inset
+        val w = r.width() - 2 * inset
+        stroke.color = Color.argb((alpha * 230).toInt(), 255, 255, 255)
+        stroke.strokeWidth = 2.5f * dp
+        var px = left
+        var py = r.bottom - traceV[0] * r.height()
+        for (k in 1 until traceN) {
+            val x = left + (traceT[k] - t0) / dur * w
+            val y = r.bottom - traceV[k] * r.height()
+            c.drawLine(px, py, x, y, stroke)
+            px = x; py = y
+        }
+        stroke.strokeWidth = 1f * dp
+        // peak marker
+        val py2 = r.bottom - tracePeak * r.height()
+        fill.color = Color.argb((alpha * 255).toInt(), 255, 204, 0)
+        c.drawRect(r.left, py2 - 1.5f * dp, r.left + 10 * dp, py2 + 1.5f * dp, fill)
+        if (!traceActive) {
+            text.textSize = 11 * dp
+            text.color = Color.argb((alpha * 255).toInt(), 255, 204, 0)
+            text.typeface = condensed
+            c.drawText("peak ${(tracePeak * 100).roundToInt()}%", r.centerX(), r.bottom - 8 * dp, text)
+            text.typeface = condensedBold
+        }
     }
 
     // ------------------------------------------------------------------ dashboard

@@ -89,6 +89,13 @@ class Haptics(
         pulseUntil = SystemClock.elapsedRealtime() + ms
     }
 
+    /** Brake detent: a crisp notch you feel in the thumb. */
+    fun detent() {
+        if (!prefs.hapticsOn || prefs.hDetent <= 0f) return
+        pulseAmp = prefs.hDetent.coerceIn(0f, 1f)
+        pulseUntil = SystemClock.elapsedRealtime() + 14
+    }
+
     /** Plays each effect once, in order, so you can learn how they feel. */
     fun test() {
         testStart = SystemClock.elapsedRealtime()

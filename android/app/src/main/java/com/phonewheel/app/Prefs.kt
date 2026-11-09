@@ -27,6 +27,12 @@ class Prefs(ctx: Context) {
     var brkCurve = 1f
     var brakePressure = 0f   // 0..100 % blend of thumb contact size into the brake
     var brakeRelease = 0f    // ms; slows the brake release for smoother trail braking
+    var brakeDetents = 3     // 0 = off, else number of notches felt across the brake range
+    var hDetent = 0.6f       // detent click strength
+    var brakeTrace = true    // draw the last brake application on the brake strip
+
+    // buttons
+    var lookToggle = true    // look left/right/back latch on tap instead of needing a hold
 
     // haptics (0..1 gains)
     var hapticsOn = true
@@ -68,6 +74,10 @@ class Prefs(ctx: Context) {
         brkCurve = sp.getFloat("brkCurve", 1f)
         brakePressure = sp.getFloat("brakePressure", 0f)
         brakeRelease = sp.getFloat("brakeRelease", 0f)
+        brakeDetents = sp.getInt("brakeDetents", 3)
+        hDetent = sp.getFloat("hDetent", 0.6f)
+        brakeTrace = sp.getBoolean("brakeTrace", true)
+        lookToggle = sp.getBoolean("lookToggle", true)
         hapticsOn = sp.getBoolean("hapticsOn", sp.getBoolean("haptics", true))
         hPreset = sp.getInt("hPreset", PRESET_ESSENTIAL)
         hOff = sp.getFloat("hOff", 0.7f)
@@ -103,6 +113,10 @@ class Prefs(ctx: Context) {
             .putFloat("brkCurve", brkCurve)
             .putFloat("brakePressure", brakePressure)
             .putFloat("brakeRelease", brakeRelease)
+            .putInt("brakeDetents", brakeDetents)
+            .putFloat("hDetent", hDetent)
+            .putBoolean("brakeTrace", brakeTrace)
+            .putBoolean("lookToggle", lookToggle)
             .putBoolean("hapticsOn", hapticsOn)
             .putInt("hPreset", hPreset)
             .putFloat("hOff", hOff)
