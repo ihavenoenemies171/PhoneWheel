@@ -241,7 +241,7 @@ object SettingsDialog {
         val presetGroup = RadioGroup(act)
         val presetLabels = listOf(
             "Essential – only what you can act on, one effect at a time (recommended)",
-            "Immersive – everything layered: road texture, shifts, rev limiter",
+            "Immersive – every effect layered at once, no priorities",
             "Off – no game vibration (button clicks still work)",
         )
         val presetIds = IntArray(3)
@@ -260,17 +260,14 @@ object SettingsDialog {
         buttonRow("Test effects (all or one by one)…" to { dialog?.dismiss(); actions.testVibration() })
         check("Vibration on", "Master switch, including button clicks", p.hapticsOn) { p.hapticsOn = it }
         pct("Overall strength", "", p.hMaster) { p.hMaster = it }
-        pct("ABS / wheel lock-up", "Fast pulses", p.hAbs) { p.hAbs = it }
-        pct("Wheelspin / slide", "Smooth rumble", p.hSlip) { p.hSlip = it }
-        pct("Understeer", "Soft slow pulse when the front tyres run out of grip", p.hUnder) { p.hUnder = it }
-        pct("Oversteer", "Sharp buzz when the rear starts to slide", p.hOver) { p.hOver = it }
-        pct("Kerbs", "Short rough rattle", p.hKerb) { p.hKerb = it }
-        pct("Off track", "Grass / gravel", p.hOff) { p.hOff = it }
-        pct("Impacts", "One hard jolt", p.hImpact) { p.hImpact = it }
-        pct("Road texture", "Immersive only", p.hRoad) { p.hRoad = it }
-        pct("Gear shift", "Immersive only – single tick", p.hShift) { p.hShift = it }
-        pct("Rev limiter", "Immersive only", p.hLimiter) { p.hLimiter = it }
-        pct("Button clicks", "Buzz when pressing wheel buttons", p.hButtons) { p.hButtons = it }
+        pct("ABS / wheel lock-up", "Fast even pulses – ease off the brake", p.hAbs) { p.hAbs = it }
+        pct("Understeer", "Soft smooth wobble – the steering going light", p.hUnder) { p.hUnder = it }
+        pct("Oversteer", "Strong \"ba-dum\" heartbeat – the rear is going", p.hOver) { p.hOver = it }
+        pct("Wheelspin / slide", "Steady unbroken rumble", p.hSlip) { p.hSlip = it }
+        pct("Kerbs", "Three knocks \"da-da-da\"", p.hKerb) { p.hKerb = it }
+        pct("Off track", "Irregular gravel crackle", p.hOff) { p.hOff = it }
+        pct("Impacts", "One heavy thud that dies away", p.hImpact) { p.hImpact = it }
+        pct("Button clicks", "Paddles: firm clunk · buttons: light tap", p.hButtons) { p.hButtons = it }
 
         // ---------------------------------------------------------- dashboard
         header("VIBRATE OR FLASH")

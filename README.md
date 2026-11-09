@@ -28,7 +28,7 @@ PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, l
   - **MFD:** arrows, OK, page, hazards, rain light, camera, HUD, ESC, look left / right / back.
 
 **Feedback from the game** (ACC, RaceRoom, LMU)
-- **Vibration as force feedback:** ABS / lock-up pulses, **understeer** (a soft pulse when the front washes out), **oversteer** (a sharp buzz when the rear goes), kerb rattle, wheelspin rumble, off-track, impacts, gear shifts and the rev limiter.
+- **Vibration as force feedback,** each effect with its own rhythm: ABS / lock-up pulses, **understeer** (a soft wobble when the front washes out), **oversteer** (a "ba-dum" heartbeat when the rear goes), kerb knocks, wheelspin rumble, off-track crackle and impact thuds.
   - The default *Essential* mode plays one effect at a time and only what you can act on, so you're never overwhelmed.
 - **Screen flashes:** big edge flashes for the brake marker, ABS, wheelspin and the shift point. Each signal can vibrate, flash or both.
 - **Dashboard:** shift lights, gear, speed, live delta, TC / TC2 / ABS / MAP / brake bias and fuel (with laps left).

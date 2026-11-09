@@ -58,10 +58,7 @@ class Prefs(private val ctx: Context) {
     var hSlip = 0.5f
     var hUnder = 0.55f
     var hOver = 0.9f
-    var hRoad = 0.35f
     var hImpact = 1f
-    var hShift = 0.6f
-    var hLimiter = 0.5f
     var hButtons = 0.6f
 
     // coach
@@ -129,10 +126,7 @@ class Prefs(private val ctx: Context) {
         hSlip = sp.getFloat("hSlip", 0.5f)
         hUnder = sp.getFloat("hUnder", 0.55f)
         hOver = sp.getFloat("hOver", 0.9f)
-        hRoad = sp.getFloat("hRoad", 0.35f)
         hImpact = sp.getFloat("hImpact", 1f)
-        hShift = sp.getFloat("hShift", 0.6f)
-        hLimiter = sp.getFloat("hLimiter", 0.5f)
         hButtons = sp.getFloat("hButtons", 0.6f)
         coachMarkers = sp.getBoolean("coachMarkers", true)
         markerLead = sp.getFloat("markerLead", 500f)
@@ -187,10 +181,7 @@ class Prefs(private val ctx: Context) {
             .putFloat("hSlip", hSlip)
             .putFloat("hUnder", hUnder)
             .putFloat("hOver", hOver)
-            .putFloat("hRoad", hRoad)
             .putFloat("hImpact", hImpact)
-            .putFloat("hShift", hShift)
-            .putFloat("hLimiter", hLimiter)
             .putFloat("hButtons", hButtons)
             .putBoolean("coachMarkers", coachMarkers)
             .putFloat("markerLead", markerLead)

@@ -737,7 +737,7 @@ class WheelView(
         val t = p.t
         val active = t < e.ms
         val mode = e.mode()
-        if (active && (mode != null && Prefs.flashes(mode) || (e.id == "shift" && prefs.flashShift))) {
+        if (active && mode != null && Prefs.flashes(mode)) {
             when (e.id) {
                 "marker" -> if (t in 0..110 || t in 170..280) {
                     fill.color = Color.argb((90 * bright).toInt(), 255, 255, 255)
@@ -755,7 +755,6 @@ class WheelView(
                     c.drawRect(0f, 0f, 16 * dp, height.toFloat(), fill)
                     c.drawRect(width - 16 * dp, 0f, width.toFloat(), height.toFloat(), fill); fill.alpha = 255
                 }
-                "shift" -> if ((now / 70) % 2 == 0L) edge(c, blue, 14 * dp, bright)
             }
         }
         // banner at the top of the wheel (stays visible above the tester panel)

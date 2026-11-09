@@ -94,23 +94,27 @@ PhoneWheel.exe reads the game's live data and the phone turns it into vibration.
   - Priority order: impact, then ABS / lock-up, then oversteer, then understeer, then wheelspin / slide, then kerb hit, then off-track.
   - ABS and lock-up only play while you're braking. Wheelspin only plays when you're off the brake. Small amounts of slip are ignored.
   - Kerbs and leaving the track give a short burst, not constant buzzing. A slide that keeps going fades after about a second.
-- **Immersive:** everything layered, including road texture, gear shift ticks and the rev limiter.
+- **Immersive:** every effect layered at once, without priorities.
 - **Off:** no game vibration. Button clicks still work.
 
 **Effects and how they feel**
 
-| Effect | Feel |
-|---|---|
-| ABS / lock-up | Fast, even pulses, like a pedal kicking back |
-| Understeer | A soft, slow pulse that grows as the front tyres slide. It stands in for "the steering goes light". |
-| Oversteer | A sharp, urgent buzz as the rear starts to slide, before the car is fully sideways |
-| Wheelspin / slide | A smooth rumble that builds up |
-| Kerbs | A short, rough rattle |
-| Off track | A rough burst, with a reminder every 2 s while you're still off |
-| Impacts | One hard jolt |
-| Brake marker | "Tick-tick" just before your braking point |
-| Brake detent | A tiny tick at 25 / 50 / 75 % brake |
-| Gear shift, rev limiter (Immersive) | A single tick, or a buzz |
+Every effect has its own rhythm, so you can tell them apart without looking:
+
+| Effect | Rhythm | What it means / what to do |
+|---|---|---|
+| ABS / lock-up | Fast, even pulses, like the pedal kicking back | Too much brake for the grip: ease off |
+| Understeer | A soft, smooth wobble that never feels sharp | The steering is "going light": slow down or unwind the wheel |
+| Oversteer | A strong "ba-dum … ba-dum" heartbeat | The rear is stepping out: catch it |
+| Wheelspin / slide | A steady, unbroken rumble that grows with the spin | Feed the throttle in more gently |
+| Kerbs | Three distinct knocks, "da-da-da", like a rumble strip | You're on the kerb |
+| Off track | An irregular random crackle, like gravel; reminder every 2 s | You're off the track |
+| Impacts | One heavy thud that dies away | Contact |
+| Brake marker | Two tiny crisp ticks, "tick-tick" | Your braking point is coming |
+| Brake detent | One tiny tick at 25 / 50 / 75 % brake | Where you are on the pedal |
+| Clicks | Paddles: a short firm clunk. Buttons: a light tap | Your press registered |
+
+There are no gear-shift, rev-limiter or road-texture vibrations. The paddle click already confirms a shift, the blue shift-point flash covers the limiter, and constant road grain only hides the signals that matter.
 
 Each effect has a strength slider. To learn how they feel, open **SETUP → Vibration → Test effects**. A panel opens at the bottom of the screen:
 - **Play all** goes through every effect in order.

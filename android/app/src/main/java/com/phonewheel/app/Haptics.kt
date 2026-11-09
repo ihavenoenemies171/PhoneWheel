@@ -5,7 +5,9 @@ import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
 import kotlin.concurrent.thread
+import kotlin.math.PI
 import kotlin.math.max
+import kotlin.math.sin
 import kotlin.random.Random
 
 /**
@@ -19,7 +21,21 @@ import kotlin.random.Random
  *  - events: kerbs and off-track are short bursts, not constant buzzing
  *  - adaptation: a slide that keeps going fades after ~1 s
  *  - thresholds: small amounts of slip are ignored
- * IMMERSIVE layers everything (road texture, shifts, rev limiter too).
+ * IMMERSIVE layers every effect at once, without priorities.
+ *
+ * Every effect has its own RHYTHM, so you can tell them apart without thinking:
+ *   ABS / lock-up  fast even pulses (30 ms on / 30 ms off), the pedal kicking back
+ *   Understeer     soft smooth wobble (4 Hz swell, never sharp): the steering going light
+ *   Oversteer      strong "ba-dum ... ba-dum" heartbeat: alarm, the rear is going
+ *   Wheelspin      steady unbroken rumble that grows with the spin
+ *   Kerb           three distinct knocks: "da-da-da", like a rumble strip
+ *   Off track      irregular random crackle: gravel / grass
+ *   Impact         one heavy thud that dies away
+ *   Brake marker   two tiny crisp ticks: "tick-tick"
+ *   Detent         one tiny tick
+ *   Paddle click   short firm clunk;  button click: light tap
+ * (Gear shift, rev limiter and road texture were removed: the paddle click and the shift-light
+ *  flash already say the same thing, and constant road grain only hides the signals that matter.)
  */
 class Haptics(
     private val vibrator: Vibrator?,
@@ -39,22 +55,20 @@ class Haptics(
 
     // events
     private var lastImpactSeq = -1
-    private var lastShiftSeq = -1
     private var lastMarkerSeq = -1
     private var markerAt = 0L
     private var impactUntil = 0L
     private var impactAmp = 0f
-    private var shiftUntil = 0L
 
     // essential-mode state
     private var slipSince = 0L
     private var slipQuietSince = 0L
     private var kerbOn = false
     private var kerbLastHit = 0L
-    private var kerbBurstUntil = 0L
+    private var kerbAt = 0L
     private var offOn = false
     private var offLastBurst = 0L
-    private var offBurstUntil = 0L
+    private var offAt = 0L
 
     // motor
     private var lastIssued = 0f
@@ -103,7 +117,7 @@ class Haptics(
     fun detent() {
         if (!prefs.hapticsOn || prefs.hDetent <= 0f) return
         pulseAmp = prefs.hDetent.coerceIn(0f, 1f)
-        pulseUntil = SystemClock.elapsedRealtime() + 14
+        pulseUntil = SystemClock.elapsedRealtime() + 12
         wakeUp()
     }
 
@@ -115,18 +129,15 @@ class Haptics(
     )
 
     val effects: List<Effect> = listOf(
-        Effect("abs", "ABS / lock-up", "Fast even pulses, like the pedal kicking back", 1000, { prefs.fbAbs }) { _, n -> if (absPulse(n)) prefs.hAbs else 0f },
-        Effect("under", "Understeer", "Soft slow pulse: the front tyres have run out of grip", 1200, { prefs.fbUnder }) { _, n -> if ((n % 160) < 72) prefs.hUnder * 0.8f else 0f },
-        Effect("over", "Oversteer", "Sharp urgent buzz: the rear is starting to slide", 1000, { prefs.fbOver }) { _, n -> prefs.hOver * (if ((n / 15) % 2 == 0L) 1f else 0.5f) },
-        Effect("slip", "Wheelspin / slide", "Smooth rumble that builds up", 1000, { prefs.fbSlip }) { t, _ -> prefs.hSlip * (0.45f + 0.55f * (t / 1000f)) },
-        Effect("kerb", "Kerbs", "Short rough rattle each time you hit a kerb (3 hits)", 1000, { null }) { t, n -> if (t < 130 || t in 400..530 || t in 800..930) prefs.hKerb * rattle(n) else 0f },
-        Effect("off", "Off track", "Rough burst when you leave the track", 450, { null }) { t, n -> if (t < 250) prefs.hOff * (0.6f + 0.4f * rattle(n)) else 0f },
-        Effect("impact", "Impact", "One hard jolt on contact", 450, { null }) { t, _ -> if (t < 150) prefs.hImpact else 0f },
-        Effect("marker", "Brake marker", "Tick-tick just before your best lap's braking point", 450, { prefs.fbMarker }) { t, _ -> if (t in 0..30 || t in 100..130) prefs.hMarker else 0f },
-        Effect("detent", "Brake detents", "Tiny ticks at 25 / 50 / 75 % brake", 750, { null }) { t, _ -> if (t in 0..14 || t in 300..314 || t in 600..614) prefs.hDetent else 0f },
-        Effect("shift", "Gear shift", "Single tick on every shift (Immersive preset)", 350, { null }) { t, _ -> if (t < 40) prefs.hShift else 0f },
-        Effect("limiter", "Rev limiter", "Buzz at the limiter (Immersive preset)", 900, { null }) { _, n -> if ((n / 25) % 2 == 0L) prefs.hLimiter * 0.8f else 0f },
-        Effect("road", "Road texture", "Light grainy texture from the road (Immersive preset)", 900, { null }) { _, _ -> prefs.hRoad * (0.6f + 0.4f * Random.nextFloat()) },
+        Effect("abs", "ABS / lock-up", "Fast even pulses, like the brake pedal kicking back. Ease off the brake.", 1200, { prefs.fbAbs }) { t, _ -> prefs.hAbs * absP(t) },
+        Effect("under", "Understeer", "Soft smooth wobble: the steering going light. The front has no grip, so slow down or unwind the wheel.", 1500, { prefs.fbUnder }) { t, _ -> prefs.hUnder * 0.8f * underP(t) },
+        Effect("over", "Oversteer", "Strong heartbeat \"ba-dum, ba-dum\": the rear is stepping out. Catch it.", 1300, { prefs.fbOver }) { t, _ -> prefs.hOver * overP(t) },
+        Effect("slip", "Wheelspin / slide", "Steady unbroken rumble that grows with the spin. Feed the throttle in more gently.", 1200, { prefs.fbSlip }) { t, _ -> prefs.hSlip * (0.45f + 0.55f * (t / 1200f)) },
+        Effect("kerb", "Kerbs", "Three distinct knocks \"da-da-da\" each time you hit a kerb (shown twice)", 1100, { null }) { t, _ -> prefs.hKerb * (kerbP(t) + kerbP(t - 700)) },
+        Effect("off", "Off track", "Irregular crackle like gravel, with a reminder every 2 s while you're still off", 450, { null }) { t, n -> if (t < OFF_MS) prefs.hOff * offP(n) else 0f },
+        Effect("impact", "Impact", "One heavy thud that dies away", 400, { null }) { t, _ -> prefs.hImpact * impactP(t) },
+        Effect("marker", "Brake marker", "Two tiny crisp ticks \"tick-tick\" just before your best lap's braking point", 450, { prefs.fbMarker }) { t, _ -> prefs.hMarker * markerP(t) },
+        Effect("detent", "Brake detents", "One tiny tick at each of 25 / 50 / 75 % brake", 750, { null }) { t, _ -> if (t in 0..11 || t in 300..311 || t in 600..611) prefs.hDetent else 0f },
     )
 
     private val GAP = 450L
@@ -160,9 +171,21 @@ class Haptics(
         return null
     }
 
-    // ------------------------------------------------------------------ patterns
-    private fun absPulse(now: Long) = (now / 30) % 2 == 0L                 // ~16 Hz kick-back
-    private fun rattle(now: Long) = if ((now / 20) % 2 == 0L) 1f else 0.25f // rough, fast
+    // ------------------------------------------------------------------ patterns (0..1, t = ms)
+    private fun absP(t: Long) = if ((t / 30) % 2 == 0L) 1f else 0f                         // ~17 Hz even pulses
+    private fun underP(t: Long) = 0.45f + 0.55f * (0.5f + 0.5f * sin(2.0 * PI * t / 250.0).toFloat())  // 4 Hz soft swell
+    private fun overP(t: Long): Float { val p = t % 280; return if (p < 40 || p in 85 until 125) 1f else 0f }  // ba-dum
+    private fun kerbP(t: Long) = if (t in 0 until KERB_MS && t % 100 < 32) 1f else 0f          // da-da-da
+    private fun impactP(t: Long) = if (t in 0 until IMPACT_MS) 1f - 0.75f * t / IMPACT_MS else 0f  // thud, decaying
+    private fun markerP(t: Long) = if (t in 0..24 || t in 100..124) 1f else 0f                 // tick-tick
+    private fun offP(now: Long): Float {                                                       // random crackle
+        val slot = now / 20
+        val r = (((slot * 1103515245L + 12345L) ushr 9) and 0xFF).toFloat() / 255f
+        return if (r > 0.35f) 0.35f + 0.65f * r else 0f
+    }
+    private val KERB_MS = 300L
+    private val OFF_MS = 400L
+    private val IMPACT_MS = 220L
 
     /** Returns true while anything could be vibrating (keeps the fast 100 Hz loop). */
     private fun tick(): Boolean {
@@ -173,7 +196,7 @@ class Haptics(
         if (lastMarkerSeq >= 0 && tel.markerSeq != lastMarkerSeq) markerAt = now
         lastMarkerSeq = tel.markerSeq
         val mt = now - markerAt
-        if (markerAt != 0L && prefs.hapticsOn && Prefs.vibrates(prefs.fbMarker) && (mt in 0..30 || mt in 100..130)) {
+        if (markerAt != 0L && prefs.hapticsOn && Prefs.vibrates(prefs.fbMarker) && markerP(mt) > 0f) {
             drive(prefs.hMarker.coerceIn(0f, 1f), now)
             return true
         }
@@ -182,12 +205,10 @@ class Haptics(
         val fresh = tel.vibeFresh(now)
         if (fresh) {
             if (lastImpactSeq >= 0 && tel.impactSeq != lastImpactSeq) {
-                impactUntil = now + 150
+                impactUntil = now + IMPACT_MS
                 impactAmp = 0.6f + 0.4f * tel.impactMag.coerceIn(0f, 1f)
             }
-            if (lastShiftSeq >= 0 && tel.shiftSeq != lastShiftSeq) shiftUntil = now + 40
             lastImpactSeq = tel.impactSeq
-            lastShiftSeq = tel.shiftSeq
         }
 
         val demo = playing(now)
@@ -211,31 +232,30 @@ class Haptics(
 
         // keep event state up to date even when a higher priority effect wins
         val kerbHitNow = tel.vKerb > 0.15f && !kerbOn && now - kerbLastHit > 500
-        if (kerbHitNow) { kerbLastHit = now; kerbBurstUntil = now + 130 }
+        if (kerbHitNow) { kerbLastHit = now; kerbAt = now }
         kerbOn = tel.vKerb > 0.1f
         if (tel.vOff > 0.2f) {
-            if (!offOn || now - offLastBurst > 2000) { offLastBurst = now; offBurstUntil = now + 250 }
+            if (!offOn || now - offLastBurst > 2000) { offLastBurst = now; offAt = now }
             offOn = true
         } else {
             offOn = false
         }
 
         // 1. impact
-        if (now < impactUntil) return prefs.hImpact * impactAmp
+        if (now < impactUntil) return prefs.hImpact * impactAmp * impactP(now - (impactUntil - IMPACT_MS))
 
         // 2. ABS / lock-up, only meaningful while braking
         if (braking && tel.vAbs > 0.15f && Prefs.vibrates(prefs.fbAbs)) {
-            return if (absPulse(now)) prefs.hAbs * (0.6f + 0.4f * tel.vAbs) else 0f
+            return prefs.hAbs * (0.65f + 0.35f * tel.vAbs) * absP(now)
         }
 
-        // 3. oversteer: sharp, urgent buzz - the rear is going
+        // 3. oversteer: strong "ba-dum" heartbeat - the rear is going
         if (tel.vOver > 0.2f && Prefs.vibrates(prefs.fbOver)) {
-            return prefs.hOver * (0.6f + 0.4f * tel.vOver) * (if ((now / 15) % 2 == 0L) 1f else 0.5f)
+            return prefs.hOver * (0.7f + 0.3f * tel.vOver) * overP(now)
         }
-        // 4. understeer: soft, slow pulse that grows - the front has run out of grip ("steering goes light")
+        // 4. understeer: soft smooth wobble that grows - the front has run out of grip ("steering goes light")
         if (tel.vUnder > 0.2f && Prefs.vibrates(prefs.fbUnder)) {
-            val phase = (now % 160) / 160f                  // ~6 Hz
-            return prefs.hUnder * (0.35f + 0.65f * tel.vUnder) * (if (phase < 0.45f) 1f else 0f)
+            return prefs.hUnder * (0.35f + 0.5f * tel.vUnder) * underP(now)
         }
 
         // 5. wheelspin / slide, only off the brake; fades if it just keeps going
@@ -252,11 +272,12 @@ class Haptics(
             if (now - slipQuietSince > 300) slipSince = 0L
         }
 
-        // 4. kerb: short burst as you hit it
-        if (now < kerbBurstUntil) return prefs.hKerb * rattle(now)
+        // 6. kerb: "da-da-da" as you hit it
+        if (kerbP(now - kerbAt) > 0f && kerbAt != 0L) return prefs.hKerb
+        if (now - kerbAt < KERB_MS) return 0f      // keep the gaps between knocks clean
 
-        // 5. off-track: burst when you leave the track, reminder every 2 s
-        if (now < offBurstUntil) return prefs.hOff * (0.6f + 0.4f * rattle(now))
+        // 7. off-track: crackle when you leave the track, reminder every 2 s
+        if (offAt != 0L && now - offAt < OFF_MS) return prefs.hOff * offP(now)
 
         return 0f
     }
@@ -264,16 +285,13 @@ class Haptics(
     // ------------------------------------------------------------------ IMMERSIVE
     private fun immersive(now: Long): Float {
         var a = 0f
-        if (tel.vAbs > 0.04f && absPulse(now) && Prefs.vibrates(prefs.fbAbs)) a = max(a, prefs.hAbs * (0.55f + 0.45f * tel.vAbs))
-        if (tel.vKerb > 0.04f) a = max(a, prefs.hKerb * tel.vKerb * rattle(now) * (0.85f + 0.15f * Random.nextFloat()))
+        if (tel.vAbs > 0.04f && Prefs.vibrates(prefs.fbAbs)) a = max(a, prefs.hAbs * (0.55f + 0.45f * tel.vAbs) * absP(now))
+        if (tel.vKerb > 0.04f) a = max(a, prefs.hKerb * tel.vKerb * (if (now % 100 < 32) 1f else 0f))
         if (tel.vSlip > 0.04f && Prefs.vibrates(prefs.fbSlip)) a = max(a, prefs.hSlip * tel.vSlip * 0.9f)
-        if (tel.vOver > 0.1f && Prefs.vibrates(prefs.fbOver)) a = max(a, prefs.hOver * tel.vOver * (if ((now / 15) % 2 == 0L) 1f else 0.5f))
-        if (tel.vUnder > 0.1f && Prefs.vibrates(prefs.fbUnder) && (now % 160) < 72) a = max(a, prefs.hUnder * (0.35f + 0.65f * tel.vUnder))
-        if (tel.vOff > 0.04f) a = max(a, prefs.hOff * tel.vOff * (0.5f + 0.5f * Random.nextFloat()))
-        if (tel.vRoad > 0.04f) a = max(a, prefs.hRoad * tel.vRoad * (0.6f + 0.4f * Random.nextFloat()))
-        if (tel.limiter && (now / 25) % 2 == 0L) a = max(a, prefs.hLimiter * 0.8f)
-        if (now < shiftUntil) a = max(a, prefs.hShift)
-        if (now < impactUntil) a = max(a, prefs.hImpact * impactAmp)
+        if (tel.vOver > 0.1f && Prefs.vibrates(prefs.fbOver)) a = max(a, prefs.hOver * (0.6f + 0.4f * tel.vOver) * overP(now))
+        if (tel.vUnder > 0.1f && Prefs.vibrates(prefs.fbUnder)) a = max(a, prefs.hUnder * (0.35f + 0.5f * tel.vUnder) * underP(now))
+        if (tel.vOff > 0.04f) a = max(a, prefs.hOff * tel.vOff * offP(now))
+        if (now < impactUntil) a = max(a, prefs.hImpact * impactAmp * impactP(now - (impactUntil - IMPACT_MS)))
         return a
     }
 

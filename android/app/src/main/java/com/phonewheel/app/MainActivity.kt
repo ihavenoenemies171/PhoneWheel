@@ -325,7 +325,8 @@ class MainActivity : Activity(), SensorEventListener {
         }
     }
 
-    private fun buzz(ms: Long) = haptics.pulse(ms)
+    // paddles / CENTER (>= 25 ms asked): short firm clunk; buttons: light tap
+    private fun buzz(ms: Long) = if (ms >= 25) haptics.pulse(20, 1f) else haptics.pulse(9, 0.55f)
 
     // ---- layout editor
     private fun editTile(page: LPage, item: LItem, isNew: Boolean) {

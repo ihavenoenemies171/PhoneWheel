@@ -84,7 +84,7 @@ object EffectTester {
                         m == Prefs.FB_FLASH -> "flash only"
                         m == Prefs.FB_BOTH -> "vibration + flash"
                         else -> "vibration"
-                    } + if (e.id == "shift" && prefs.flashShift) " (+ blue edge at the shift point)" else ""
+                    }
                     progress.text = (if (p.total > 1) "PLAYING ${p.index + 1} / ${p.total}" else "PLAYING") + "  ·  $how"
                     title.text = e.name
                     desc.text = e.desc
