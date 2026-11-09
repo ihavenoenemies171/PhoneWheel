@@ -29,7 +29,25 @@ import vjoy
 FROZEN = getattr(sys, "frozen", False)
 HERE = os.path.dirname(os.path.abspath(__file__))
 RES_DIR = getattr(sys, "_MEIPASS", HERE)                       # bundled read-only files
-APP_DIR = os.path.dirname(sys.executable) if FROZEN else HERE  # writable folder next to the exe
+EXE_DIR = os.path.dirname(sys.executable) if FROZEN else HERE
+
+
+def _writable_dir():
+    """Where laps, reports, logs and the certificate are saved: next to the program if possible
+    (portable zip), otherwise Documents\\PhoneWheel (installed in Program Files)."""
+    try:
+        test = os.path.join(EXE_DIR, ".pw_write_test")
+        with open(test, "w") as fh:
+            fh.write("x")
+        os.remove(test)
+        return EXE_DIR
+    except OSError:
+        docs = os.path.join(os.path.expanduser("~"), "Documents", "PhoneWheel")
+        os.makedirs(docs, exist_ok=True)
+        return docs
+
+
+APP_DIR = _writable_dir()
 WEB = os.path.join(RES_DIR, "web")
 CERT_DIR = os.path.join(APP_DIR, "cert")
 APP_PORT = 8767
@@ -692,6 +710,7 @@ def main():
             print(f"            https://{ip}:{args.https_port}")
         print("            (first time: tap 'Advanced' -> 'Proceed' on the certificate warning)")
     print(f"\n  Session report (updates every lap): http://localhost:{args.http_port}/report")
+    print(f"  Laps, reports and logs are saved in: {APP_DIR}")
     print("\n  Ctrl+C to quit.\n")
 
     async def run():

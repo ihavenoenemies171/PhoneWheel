@@ -72,7 +72,17 @@ Use the **Essential** preset, lower **Overall strength**, or switch ABS and whee
 - If Play Protect blocks it, tap **More details → Install anyway**.
 - If you see *"App not installed"* when updating, uninstall the old version first. This happens when you built your own APK with a different signing key.
 
+## Clutch / handbrake lever does nothing in the game
+
+Tick **Rx** and **Ry** in *Configure vJoy* (the installer does this automatically). The PhoneWheel window shows a note if they're missing. Then bind them with **SETUP → Bind controls → Clutch / Handbrake**.
+
+## The app drains the battery or gets hot
+
+Use **SETUP → Battery**: brightness 20–40 %, frame rate 30–45 fps, sensor rate 100 Hz. USB tethering charges the phone while you drive. Removing a thick case helps too.
+
 ## Still stuck?
+
+Send a **debug log** first: **SETUP → Help → Diagnostics → Send debug log to PC**. Then attach both files from the `logs` folder to your issue.
 
 Open an issue on GitHub: https://github.com/ihavenoenemies171/PhoneWheel/issues. Include:
 - your phone model and Android version;

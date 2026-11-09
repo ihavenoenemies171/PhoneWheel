@@ -12,3 +12,5 @@ __pycache__/
 pc/best_laps/
 pc/reports/
 pc/logs/
+installer_out/
+pc/installer/vJoySetup.exe

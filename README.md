@@ -8,7 +8,8 @@ PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, l
 
 > ⬇️ **Downloads (latest version)**
 > - 📱 Phone app: **[PhoneWheel.apk](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel.apk)**
-> - 💻 PC program: **[PhoneWheel-PC.zip](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-PC.zip)**
+> - 💻 PC installer (sets up vJoy and the firewall for you): **[PhoneWheel-Setup.exe](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-Setup.exe)**
+> - 💻 PC portable version: [PhoneWheel-PC.zip](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-PC.zip)
 > - All versions: [Releases](https://github.com/ihavenoenemies171/PhoneWheel/releases)
 
 ---
@@ -19,12 +20,15 @@ PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, l
 - **Tilt steering** using the gyroscope and accelerometer, with adjustable range, deadzone, smoothing, linearity and optional speed-sensitive steering.
 - **Analog brake (left edge) and throttle (right edge).** Slide your thumb up for more. Options include pedal curves, deadzones, brake pressure feel, brake release smoothing and **brake detents** (ticks you feel at 25 / 50 / 75 %).
 - **Paddle shifters:** upshift on the left, downshift on the right.
-- **32 buttons on two pages.**
+- **Layout editor:** drag buttons around, resize, recolour and rename them, add pages, and add analog **clutch** and **handbrake** levers. You can also change pedal and paddle widths.
+- **Profiles:** each one holds a full set of settings plus a layout, and can switch automatically per game or car.
+- **Button box mode:** use a second phone or tablet as an extra button box and big dashboard.
+- **32 buttons on two pages** in the standard layout.
   - **DRIVE:** pit limiter, lights, flash, wipers, TC ±, ABS ±, engine map ±, brake bias ±, ignition, starter, indicators.
   - **MFD:** arrows, OK, page, hazards, rain light, camera, HUD, ESC, look left / right / back.
 
 **Feedback from the game** (ACC, RaceRoom, LMU)
-- **Vibration as force feedback:** ABS / lock-up pulses, kerb rattle, wheelspin rumble, off-track, impacts, gear shifts and the rev limiter.
+- **Vibration as force feedback:** ABS / lock-up pulses, **understeer** (a soft pulse when the front washes out), **oversteer** (a sharp buzz when the rear goes), kerb rattle, wheelspin rumble, off-track, impacts, gear shifts and the rev limiter.
   - The default *Essential* mode plays one effect at a time and only what you can act on, so you're never overwhelmed.
 - **Screen flashes:** big edge flashes for the brake marker, ABS, wheelspin and the shift point. Each signal can vibrate, flash or both.
 - **Dashboard:** shift lights, gear, speed, live delta, TC / TC2 / ABS / MAP / brake bias and fuel (with laps left).
@@ -33,13 +37,27 @@ PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, l
 - **Live delta** against your best lap, in every game.
 - **Brake markers:** "tick-tick" in your thumb and a screen flash just before your best lap's braking points.
 - **Corner-by-corner notes,** such as *"T3 brake: 9 m earlier · peak 74% (best 88%) · locked up"* or *"T5 +0.21s: full throttle 0.4 s later · wheelspin"*.
-- **Session report** in your browser: lap times, consistency, traces of your best lap against your last lap, and **where you lose the most time, and why**.
+- **Session report** in your browser:
+  - lap times, consistency and **theoretical best lap**;
+  - a **track map heat map** of where you gain and lose time;
+  - traces of your best lap against your last lap;
+  - **trail-brake scores** per corner;
+  - **where you lose the most time, and why**.
+- **Reference laps:** share your best laps, or load a friend's as the reference for your markers and delta.
 
 **Connection**
 - **WiFi:** the app finds the PC automatically, and switches the phone to Android's low-latency WiFi mode while it's open.
 - **USB tethering:** low lag, and no developer mode needed.
 - **USB via adb:** the advanced option.
 - **Safety:** if the connection drops, the PC releases throttle, brake and all buttons within 0.3 s.
+
+**Built to last a race**
+- Battery-friendly: the screen only redraws when something changes, the sensor and network rates are sensible, and dimming the screen is optional.
+- Battery and heat warnings.
+- A **diagnostics** screen with a one-tap debug log that uploads to the PC.
+
+**Hardware**
+- A **3D-printable GT3 rim** for your phone, parametric for your phone's size. STL and STEP files are included; see [hardware/](hardware/README.md).
 
 <p align="center"><img src="docs/images/session-report.png" width="720" alt="Example session report"><br><em>Example session report (generated from simulated laps)</em></p>
 
@@ -49,17 +67,12 @@ PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, l
 
 You need an **Android phone** (Android 8 or newer) and a **Windows 10/11 PC**.
 
-1. **Install vJoy 2.2.2.0 on the PC** from https://github.com/BrunnerInnovation/vJoy/releases (the `.exe` under *Assets*). Restart the PC if asked.
-2. **Configure vJoy:** open *Configure vJoy* from the Start menu, select device **1**, and set:
-   - axes **X, Y, Z** ticked;
-   - **32** buttons;
-   - **0** POV hats;
-   - **Enable vJoy** ticked.
-
-   Then click **Apply**.
-3. **Download and unzip [PhoneWheel-PC.zip](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-PC.zip)** anywhere, then double-click **PhoneWheel.exe**.
+1. **On the PC, run [PhoneWheel-Setup.exe](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-Setup.exe).**
+   - It installs PhoneWheel and the **vJoy driver**, sets up the virtual wheel, and opens the firewall.
    - If Windows SmartScreen warns you, click *More info → Run anyway*.
-   - If the firewall asks, click **Allow**.
+   - Restart the PC if it asks.
+2. **Start PhoneWheel** from the Start menu or the desktop shortcut.
+3. *Prefer no installer?* Use [PhoneWheel-PC.zip](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-PC.zip) and set up vJoy yourself; see the [setup guide](docs/SETUP.md).
 4. **On the phone, download [PhoneWheel.apk](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel.apk)** and install it. Allow *Install unknown apps* when asked.
 5. **Connect:** put the phone and PC on the **same WiFi** and open the app. The status line turns green when it has found the PC.
 6. **Drive:** hold the phone level, tap **CENTER**, and bind the controls in your game's controls menu.
@@ -79,6 +92,7 @@ You need an **Android phone** (Android 8 or newer) and a **Windows 10/11 PC**.
 | [Features & settings](docs/FEATURES.md) | Every screen, button, setting, vibration effect, the dashboard and the driving coach explained |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) | Fixes for the common problems |
 | [Building from source](docs/BUILDING.md) | How the project is put together, building the APK and EXE yourself, the network protocol |
+| [3D-printable rim](hardware/README.md) | A GT3-style rim that holds your phone: STL and STEP files, parametric for your phone size |
 | [Contributing](CONTRIBUTING.md) | How to report bugs, suggest features and send changes |
 
 ---

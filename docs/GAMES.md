@@ -7,12 +7,14 @@ PhoneWheel shows up in games as a controller called **vJoy Device**:
 | **X axis** | Steering (centre = straight) |
 | **Y axis** | Throttle (0 = released) |
 | **Z axis** | Brake (0 = released) |
+| **Rx axis** | Clutch lever (optional; add it in *Edit button layout*) |
+| **Ry axis** | Handbrake lever (optional) |
 | **Buttons 1–32** | Paddles and wheel buttons (see the map below) |
 
 ## General binding tips
 
 - Keep **PhoneWheel.exe running** and the **app connected** (green dot) *before* you start the game. Most games only look for controllers when they start, so restart the game if it doesn't see vJoy.
-- **Axes:** in the game, click the control you want to assign. Then tap **SETUP → Bind controls → Steering / Throttle / Brake** on the phone. The app moves only that axis for 4 seconds.
+- **Axes:** in the game, click the control you want to assign. Then tap **SETUP → Bind controls → Steering / Throttle / Brake / Clutch / Handbrake** on the phone. The app moves only that axis for 4 seconds.
 - **Buttons:** turn on **LOCK** in the app's top bar (it freezes steering at centre), click the action in the game, then tap the button on the phone. Turn on **SETUP → Show button numbers** if a game asks for a button number.
 - Set the game's own steering and pedal **gamma/linearity to 1.0 (linear)**. Do the shaping in the PhoneWheel app instead.
 
@@ -94,8 +96,11 @@ Any PC sim that supports DirectInput wheels can use PhoneWheel's controls: rFact
 | Wheelspin / slide | ✅ | ✅ | ✅ |
 | Off-track (grass, gravel) | ✅ | ✅ | ✅ |
 | Road texture (Immersive mode) | ✅ from the game's FFB | – | ✅ from the game's FFB |
+| Understeer / oversteer | ✅ from tyre slip angles | ✅ from yaw rate vs steering | ✅ from tyre sliding |
 | Impacts | ✅ | ✅ | ✅ |
 | Gear shift / rev limiter | ✅ | ✅ | ✅ |
 | Dashboard: TC / TC2 / ABS / MAP | ✅ | TC / ABS / MAP | – (shows "–") |
 | Dashboard: brake bias, fuel | ✅ | ✅ | ✅ |
 | Driving coach and session report | ✅ | ✅ | ✅ |
+| Track map in the report | ✅ | ✅ | ✅ |
+| Car steering lock (for *Match each car's steering lock*) | – | ✅ | ✅ |

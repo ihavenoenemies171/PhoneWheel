@@ -8,6 +8,17 @@ This guide takes you from nothing to driving. You need:
 
 ---
 
+## Easiest: the installer
+
+Run **[PhoneWheel-Setup.exe](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-Setup.exe)**. It does steps 1 and 2 below for you:
+- installs vJoy 2.2.2.0;
+- sets up device 1 with axes X, Y, Z, Rx and Ry, 32 buttons and no POV hats, and switches it on;
+- installs PhoneWheel;
+- opens the Windows Firewall for it on all network types;
+- adds Start-menu and desktop shortcuts, plus an optional start-with-Windows shortcut.
+
+Restart the PC if it asks, then go to [step 3](#3-install-the-phone-app). The installed version saves laps, reports and logs in **Documents\PhoneWheel**.
+
 ## 1. Install vJoy (the virtual wheel driver)
 
 PhoneWheel creates a virtual game controller on your PC through **vJoy**.
@@ -17,7 +28,7 @@ PhoneWheel creates a virtual game controller on your PC through **vJoy**.
 2. Run the installer and restart the PC if it asks.
 3. Open **Configure vJoy** from the Start menu.
 4. Select device **1** at the top and set:
-   - **Axes:** tick **X**, **Y** and **Z**. You can untick the rest.
+   - **Axes:** tick **X**, **Y** and **Z**. Also tick **Rx** and **Ry** if you want the analog clutch and handbrake levers.
    - **Number of buttons:** **32**
    - **POV hat switches:** **0**
    - Bottom left: **Enable vJoy** must be ticked.
@@ -52,6 +63,8 @@ Leave PhoneWheel.exe running while you drive. It shows a live line with steering
 4. Open **PhoneWheel**. It runs in landscape and full screen.
 
 To update later, install the new APK over the old one. Your settings are kept.
+
+> **One-time note:** when releases switch to being signed with the project's own key instead of a generic test key, Android may say *"App not installed"* or *"conflicts with an existing package"* when you update. If it does, uninstall the old PhoneWheel first, then install the new one. After that, updates install normally again.
 
 ## 4. Connect the phone to the PC
 

@@ -14,6 +14,8 @@ permissions:
 jobs:
   android:
     runs-on: ubuntu-latest
+    env:
+      KS: ${{ secrets.PW_KEYSTORE_BASE64 }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -23,8 +25,17 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      - name: Release signing key (if the repository has one)
+        if: ${{ env.KS != '' }}
+        run: |
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/pw.jks"
+          echo "PW_KEYSTORE=$RUNNER_TEMP/pw.jks" >> "$GITHUB_ENV"
       - name: Build APK
         working-directory: android
+        env:
+          PW_KEYSTORE_PASSWORD: ${{ secrets.PW_KEYSTORE_PASSWORD }}
+          PW_KEY_ALIAS: ${{ secrets.PW_KEY_ALIAS }}
+          PW_KEY_PASSWORD: ${{ secrets.PW_KEY_PASSWORD }}
         run: gradle assembleRelease --no-daemon --stacktrace
       - name: Rename APK
         run: cp android/app/build/outputs/apk/release/app-release.apk PhoneWheel.apk
@@ -45,6 +56,27 @@ jobs:
       - name: Build PhoneWheel.exe
         working-directory: pc
         run: pyinstaller --noconfirm --onefile --console --name PhoneWheel --icon icon.ico --add-data "web;web" server.py
+      - name: Get the vJoy installer to bundle
+        shell: pwsh
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rels = gh api repos/BrunnerInnovation/vJoy/releases | ConvertFrom-Json
+          $rel = $rels | Where-Object { $_.tag_name -like '*2.2.2*' } | Select-Object -First 1
+          if (-not $rel) { $rel = $rels | Select-Object -First 1 }
+          $asset = $rel.assets | Where-Object { $_.name -like '*.exe' } | Select-Object -First 1
+          Invoke-WebRequest $asset.browser_download_url -OutFile pc/installer/vJoySetup.exe
+          Write-Output "Bundling $($asset.name) from vJoy $($rel.tag_name)"
+      - name: Build installer
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          $flags = @("/DAppVersion=1.0.${{ github.run_number }}")
+          if (Test-Path pc/installer/vJoySetup.exe) { $flags += "/DWithVJoy=1" } else { Write-Output "Building without vJoy" }
+          & $iscc @flags pc/installer/PhoneWheel.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - name: Package
         shell: pwsh
         run: |
@@ -56,10 +88,13 @@ jobs:
           Copy-Item LICENSE out/LICENSE.txt
           Copy-Item -Recurse docs out/docs
           Compress-Archive -Path out/* -DestinationPath PhoneWheel-PC.zip -Force
+          Copy-Item installer_out/PhoneWheel-Setup.exe .
       - uses: actions/upload-artifact@v4
         with:
           name: PhoneWheel-PC
-          path: PhoneWheel-PC.zip
+          path: |
+            PhoneWheel-PC.zip
+            PhoneWheel-Setup.exe
 
   release:
     needs: [android, windows]
@@ -74,9 +109,11 @@ jobs:
           name: PhoneWheel v1.0.${{ github.run_number }}
           body: |
             **Phone:** download `PhoneWheel.apk` on your Android phone and install it.
-            **PC:** download `PhoneWheel-PC.zip`, unzip it and run `PhoneWheel.exe` (vJoy 2.2.2.0 must be installed).
+            **PC (easiest):** run `PhoneWheel-Setup.exe`. It installs PhoneWheel *and* sets up vJoy and the firewall for you.
+            **PC (portable):** `PhoneWheel-PC.zip`: unzip and run `PhoneWheel.exe` (install vJoy 2.2.2.0 yourself).
 
             New here? Follow the [setup guide](https://github.com/${{ github.repository }}/blob/main/docs/SETUP.md) · [all documentation](https://github.com/${{ github.repository }}#documentation)
           files: |
             PhoneWheel.apk
+            PhoneWheel-Setup.exe
             PhoneWheel-PC.zip

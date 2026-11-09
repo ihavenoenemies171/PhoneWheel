@@ -28,6 +28,37 @@
   - Drag along the bar to steer by touch (for testing).
 - **Dashboard:** shift lights, speed, live delta, gear and car settings. See below.
 
+## Layout editor
+
+Go to **SETUP → Edit button layout.** The wheel switches to edit mode:
+- **Drag** a tile to move it. Drop it on another tile to **swap** them.
+- **Tap** a tile to change its function (any of the 32 buttons, an analog **clutch** or an analog **handbrake**), label, small text, colour and size.
+- **Tap a `+`** cell to add a tile.
+- **◀ PAGE ▶** switches pages.
+- **OPTIONS** sets the grid size (2–6 columns and rows), pedal-strip and paddle widths, dashboard height, and whether the paddles swap sides. It's also where you add, rename and delete pages, or reset to the standard GT3 layout.
+- **DONE** saves the layout in the current profile.
+
+Clutch and handbrake tiles are analog: slide up inside the tile for more. They drive vJoy axes **Rx** and **Ry**.
+
+## Profiles
+
+A profile holds **all settings plus the layout**. Manage them in **SETUP → Profile**:
+- **Switch:** change to another profile.
+- **New:** copy the current profile under a new name.
+- **Rename:** give the current profile a new name.
+- **Link to game / car:** while a game is running, use the profile automatically whenever that **car** (or that **game**) is detected. For example, a GT3 profile with a 90° range and a rally profile with a handbrake lever.
+- **Delete:** remove the profile.
+
+When a car or game is detected, the app first uses a profile linked to that car, then one linked to the game, and otherwise keeps your current profile. The connection settings are shared by all profiles.
+
+## Second device: button box + dashboard
+
+On a second phone or tablet, install the app and choose **SETUP → Layout → Second device: button box + dashboard**:
+- It shows a bigger dashboard plus your button pages, with no steering or pedals.
+- Its buttons are **combined** with the wheel's, so either device can press any button.
+- Both devices get vibration and dashboard data.
+- The tilt sensor stays off on the button box, which saves battery.
+
 ## Steering
 
 | Setting | What it does |
@@ -35,6 +66,7 @@
 | Steering range | How far you rotate the phone from full left to full right (30–360°). Start at 90°. |
 | Gyro-fused sensor | Uses the gyroscope and accelerometer together: smoother, faster, and not affected by bumps or moving in your chair. Turn it off only if steering slowly drifts. |
 | Speed-sensitive steering | Needs more phone rotation at high speed, for calmer steering on straights. Needs a game with telemetry. |
+| Match each car's steering lock | RaceRoom and LMU report each car's real steering lock. The phone range follows it, so the same tilt always means the same wheel angle. *Wheel degrees per phone degree* sets the ratio: at 6, a 540° car needs 90° of phone rotation. |
 | Center deadzone | Degrees around centre that are ignored. |
 | Smoothing | Filters sensor noise. Higher is steadier but adds a little lag. |
 | Linearity | Above 1 is softer around centre, below 1 is sharper. |
@@ -59,7 +91,7 @@ PhoneWheel.exe reads the game's live data and the phone turns it into vibration.
 
 **Presets**
 - **Essential (default):** only feedback you can act on, and one effect at a time.
-  - Priority order: impact, then ABS / lock-up, then wheelspin / slide, then kerb hit, then off-track.
+  - Priority order: impact, then ABS / lock-up, then oversteer, then understeer, then wheelspin / slide, then kerb hit, then off-track.
   - ABS and lock-up only play while you're braking. Wheelspin only plays when you're off the brake. Small amounts of slip are ignored.
   - Kerbs and leaving the track give a short burst, not constant buzzing. A slide that keeps going fades after about a second.
 - **Immersive:** everything layered, including road texture, gear shift ticks and the rev limiter.
@@ -70,6 +102,8 @@ PhoneWheel.exe reads the game's live data and the phone turns it into vibration.
 | Effect | Feel |
 |---|---|
 | ABS / lock-up | Fast, even pulses, like a pedal kicking back |
+| Understeer | A soft, slow pulse that grows as the front tyres slide. It stands in for "the steering goes light". |
+| Oversteer | A sharp, urgent buzz as the rear starts to slide, before the car is fully sideways |
 | Wheelspin / slide | A smooth rumble that builds up |
 | Kerbs | A short, rough rattle |
 | Off track | A rough burst, with a reminder every 2 s while you're still off |
@@ -89,6 +123,8 @@ For each signal, choose **Vibrate**, **Flash** or **Both**:
 | Brake marker | The whole screen flashes white twice |
 | ABS / lock-up | The brake strip pulses orange |
 | Wheelspin / slide | The throttle strip glows yellow |
+| Understeer | The top edge glows blue |
+| Oversteer | Both side edges flash red |
 | Shift point | The screen edge blinks blue |
 | Coach messages | A short green (better) or red (worse) glow |
 
@@ -127,6 +163,26 @@ The coach compares every lap with **your best clean lap** on the same track and 
 
 The coach **stays quiet** when you did something the same as your best lap. Notes appear on the dashboard for 4 seconds and are also printed in the PhoneWheel.exe window.
 
+### Theoretical best lap
+
+The coach splits the track into stretches, cutting just before each braking zone, and adds up your **fastest time on each stretch from any lap**. That's your theoretical best: what you'd do if you put your best corners together. The coach announces it when it improves ("Theoretical best 1:46.81 (−0.42 vs your best)"). The report shows which lap each fastest stretch came from, and where those stretches beat your best lap, there's time to find.
+
+### Trail-brake score
+
+Every braking zone gets a score from 0 to 100 for how cleanly you released the brake from its peak. It loses points for:
+- dropping it suddenly (a "cliff");
+- re-applying it;
+- a stab release that's too short.
+
+You see it in the report's corner table. The coach adds it to a brake note when it's clearly worse than your best lap, for example "trail release 48/100 (best 85)".
+
+### Reference laps
+
+Your best lap for every game, track and car is saved, and you can **share** it. Open **http://localhost:8765/laps** on the PC, or tap **SETUP → Reference laps** on the phone. There you can:
+- **Download** a lap file to send to a friend;
+- **Load** a lap file as your **reference**. The live delta, brake markers and corner notes then compare you with *that* lap (a faster friend's, or an old lap of yours) instead of your own best;
+- **Remove** the reference to go back to your own best.
+
 ### Session report
 
 Open **http://localhost:8765/report** on the PC, or tap **SETUP → Open session report** on the phone. The report updates after every lap and shows:
@@ -136,6 +192,8 @@ Open **http://localhost:8765/report** on the PC, or tap **SETUP → Open session
 - lap times chart and table with sectors, lock-ups, wheelspin and top speed;
 - speed, brake and throttle traces of your best lap against your last lap, with the braking points marked;
 - a time-vs-best graph: when the line goes up, you're losing time there;
+- a **track map** coloured by where you gain (green) and lose (red) time on average, with corner labels;
+- the **theoretical best** table;
 - a corner table: braking point, peak pressure, minimum speed and average time lost per corner.
 
 Older sessions are at http://localhost:8765/reports and in the `reports` folder next to PhoneWheel.exe.
@@ -145,6 +203,25 @@ Older sessions are at http://localhost:8765/reports and in the `reports` folder 
 2. Open the report.
 3. Pick the **one** corner at the top of *Where you lose the most time*.
 4. Work only on that corner, using the brake markers and notes, until it's no longer at the top.
+
+## Battery and heat
+
+The app redraws the screen only when something changes, and runs the tilt sensor at 200 Hz instead of the phone's maximum. Settings in **SETUP → Battery**:
+- **Screen brightness while driving:** your eyes are on the monitor, so 20–40 % is plenty and saves the most battery.
+- **Screen frame rate:** 30, 45, 60, 75 or 90 fps.
+- **Steering sensor rate:** 100 or 200 Hz.
+
+You get a warning at 15 %, 10 % and 5 % battery when you're not charging. USB tethering charges the phone while you drive. You also get a warning if the phone gets hot.
+
+## Diagnostics
+
+**SETUP → Help → Diagnostics** shows:
+- **Connection:** ping (with a graph), packet rates, sensor rate and frame rate;
+- **Phone:** battery level, temperature and thermal state;
+- **Touch and vibration:** touch-size (pressure) support and vibration support;
+- **Game data:** every live game channel, including understeer and oversteer.
+
+**Send debug log to PC** saves a phone log and a matching PC log in the `logs` folder: next to PhoneWheel.exe, or **Documents\PhoneWheel\logs** for the installed version. Attach both when you report a problem.
 
 ## Browser version (no app)
 

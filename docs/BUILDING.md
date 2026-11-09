@@ -11,7 +11,9 @@ android/                      Android app (Kotlin, plain Android framework, no t
     Link.kt                   networking (UDP over WiFi / TCP over USB), input state, telemetry/coach parsing
     Haptics.kt                vibration mixer (Essential / Immersive presets, markers, detents)
     SettingsDialog.kt         settings screen (built in code)
-    Prefs.kt                  all settings (SharedPreferences)
+    Prefs.kt                  all settings + profiles (SharedPreferences)
+    Layout.kt                 editable layout model, button catalog, layout editor dialogs
+    Diag.kt                   diagnostics screen, debug log, battery/thermal readings
 pc/                           Windows PC program (Python)
   server.py                   entry point: network servers, vJoy output, watchdog, telemetry loop, report pages
   vjoy.py                     ctypes wrapper for vJoyInterface.dll
@@ -22,6 +24,7 @@ pc/                           Windows PC program (Python)
   network_setup.bat           firewall + tethering route helper
   usb_android.bat             adb reverse helper
 docs/                         user guides
+hardware/                     3D-printable rim: parametric CadQuery script + STL/STEP
 ```
 
 ## Building with GitHub Actions (easiest)
@@ -74,7 +77,8 @@ All messages are short ASCII text. The app uses **UDP port 8767** over WiFi (one
 | Message | Meaning |
 |---|---|
 | `PW?` | Discovery (also broadcast on every network interface). The PC answers `PW!,<pc name>,<vJoy buttons>` |
-| `d,<seq>,<steer>,<thr>,<brk>,<mask>` | Input, sent on every change plus a keepalive every 40 ms. steer −1..1, throttle/brake 0..1, mask = 32-bit button mask. Over UDP, out-of-order packets are dropped by `seq`. |
+| `d,<seq>,<steer>,<thr>,<brk>,<mask>,<clutch>,<handbrake>` | Wheel input, sent on every change plus a keepalive every 40 ms. steer −1..1, the rest 0..1, mask = 32-bit button mask. Over UDP, out-of-order packets are dropped by `seq`. |
+| `b,<seq>,<mask>` | Button box (second device): buttons only. These are combined with the wheel's buttons and expire after 0.3 s of silence. |
 | `p,<t>` | Ping. The PC echoes `q,<t>` |
 | `cfg,<markers 0/1>,<lead ms>,<messages 0/1>` | Coach settings, resent every 2 s |
 | `bye` | App closing: release everything |
@@ -83,14 +87,31 @@ All messages are short ASCII text. The app uses **UDP port 8767** over WiFi (one
 
 | Message | Meaning |
 |---|---|
-| `t,<game>,<live>,<gear>,<rpm>,<shift rpm>,<max rpm>,<kmh>,<tc>,<tc2>,<abs>,<map>,<bb>,<fuel>,<fuel laps>,<pit lim>,<abs active>,<tc active>,<delta ms>` | Dashboard data, ~30 Hz. `x` = not available. `t,,0` = no game running |
-| `v,<abs>,<kerb>,<slip>,<road>,<impact seq>,<impact mag>,<shift seq>,<limiter>,<offtrack>` | Vibration channels 0..1, ~100 Hz |
+| `t,<game>,<live>,<gear>,<rpm>,<shift rpm>,<max rpm>,<kmh>,<tc>,<tc2>,<abs>,<map>,<bb>,<fuel>,<fuel laps>,<pit lim>,<abs active>,<tc active>,<delta ms>,<steer lock>,<car>` | Dashboard data, ~30 Hz. `x` = not available. `t,,0` = no game running |
+| `v,<abs>,<kerb>,<slip>,<road>,<impact seq>,<impact mag>,<shift seq>,<limiter>,<offtrack>,<understeer>,<oversteer>` | Vibration channels 0..1, ~100 Hz |
 | `m` | Brake marker: play the tick / flash now |
 | `c,<good/bad/info>,<text>` | Coach note |
 
 Safety: if no input arrives for 0.3 s, the PC releases all axes and buttons.
 
-**Other ports:** 8765 HTTP (browser version over USB, session report) and 8766 HTTPS (browser version over WiFi; phones only allow motion sensors on secure pages).
+**Other ports:** 8765 HTTP (browser version over USB, session report `/report`, reference laps `/laps`, debug log upload `POST /log`) and 8766 HTTPS (browser version over WiFi; phones only allow motion sensors on secure pages). The app and PC talk to multiple devices at once: dashboard and vibration data go to every device seen in the last 3 s.
+
+## Release signing (maintainers)
+
+The APK is signed with the project key when the repository has these **Actions secrets** (*Settings → Secrets and variables → Actions*):
+
+| Secret | Value |
+|---|---|
+| `PW_KEYSTORE_BASE64` | the `.jks` keystore, base64-encoded |
+| `PW_KEYSTORE_PASSWORD` | keystore password |
+| `PW_KEY_ALIAS` | key alias |
+| `PW_KEY_PASSWORD` | key password |
+
+Without them (forks, local builds) the APK is signed with the debug key. **Never commit the keystore.** Keep a backup: losing it means users have to uninstall before they can install a newly signed build.
+
+## Windows installer
+
+`pc/installer/PhoneWheel.iss` (Inno Setup 6). CI downloads the vJoy 2.2.2.0 installer from BrunnerInnovation/vJoy and bundles it. If that download fails, the installer is built without vJoy and tells the user to install it. Setup configures vJoy device 1 with `vJoyConfig 1 -f -a x y z rx ry -b 32 -p 0`, enables it and adds firewall rules. The installed program saves data in `Documents\PhoneWheel`; the portable zip saves next to the exe.
 
 ## Telemetry
 

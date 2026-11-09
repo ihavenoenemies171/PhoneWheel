@@ -15,11 +15,25 @@ android {
         versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
     }
 
+    // Release signing: GitHub Actions passes the project's key through secrets (see docs/BUILDING.md).
+    // Without it (forks, local builds) the APK is signed with the debug key so it still installs.
+    val ksPath = System.getenv("PW_KEYSTORE")
+    signingConfigs {
+        create("release") {
+            if (ksPath != null && file(ksPath).exists()) {
+                storeFile = file(ksPath)
+                storePassword = System.getenv("PW_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("PW_KEY_ALIAS")
+                keyPassword = System.getenv("PW_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Signed with the debug key so the APK installs directly (sideload).
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = if (ksPath != null && file(ksPath).exists()) signingConfigs.getByName("release")
+                            else signingConfigs.getByName("debug")
         }
     }
 
