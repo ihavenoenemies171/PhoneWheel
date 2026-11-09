@@ -105,7 +105,7 @@ The APK is signed with the project key when the repository has these **Actions s
 | `PW_KEYSTORE_BASE64` | the `.jks` keystore, base64-encoded |
 | `PW_KEYSTORE_PASSWORD` | keystore password |
 | `PW_KEY_ALIAS` | key alias |
-| `PW_KEY_PASSWORD` | key password |
+| `PW_KEY_PASSWORD` | key password (optional: PKCS12 keystores use the keystore password) |
 
 Without them (forks, local builds) the APK is signed with the debug key. **Never commit the keystore.** Keep a backup: losing it means users have to uninstall before they can install a newly signed build.
 
