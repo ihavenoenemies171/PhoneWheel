@@ -74,7 +74,9 @@ jobs:
           name: PhoneWheel v1.0.${{ github.run_number }}
           body: |
             **Phone:** download `PhoneWheel.apk` on your Android phone and install it.
-            **PC:** download `PhoneWheel-PC.zip`, unzip, run `PhoneWheel.exe` (vJoy 2.2.2.0 must be installed).
+            **PC:** download `PhoneWheel-PC.zip`, unzip it and run `PhoneWheel.exe` (vJoy 2.2.2.0 must be installed).
+
+            New here? Follow the [setup guide](https://github.com/${{ github.repository }}/blob/main/docs/SETUP.md) · [all documentation](https://github.com/${{ github.repository }}#documentation)
           files: |
             PhoneWheel.apk
             PhoneWheel-PC.zip
