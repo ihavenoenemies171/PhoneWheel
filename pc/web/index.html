@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0d10">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>PhoneWheel</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main id="wheel">
+  <!-- LEFT EDGE: brake -->
+  <div class="pedal brake" id="brake" data-pedal="brake">
+    <div class="fill"></div>
+    <div class="pedal-label">BRAKE</div>
+    <div class="pedal-val" id="brakeVal">0</div>
+  </div>
+
+  <!-- left paddle -->
+  <div class="paddle left" id="paddleL"><span class="pad-arrow">▲</span><span class="pad-text">UP</span></div>
+
+  <!-- CENTER -->
+  <section class="center">
+    <header class="topbar">
+      <div class="steer-ind">
+        <svg viewBox="0 0 40 40" id="wheelIcon" aria-hidden="true">
+          <circle cx="20" cy="20" r="16" fill="none" stroke="currentColor" stroke-width="3.5"/>
+          <path d="M4 20h32M20 20v16" stroke="currentColor" stroke-width="3.5"/>
+          <rect x="18.5" y="2" width="3" height="5" fill="#ff3b30"/>
+        </svg>
+        <span id="steerVal">0%</span>
+      </div>
+      <div class="conn"><i id="connDot"></i><span id="connText">offline</span></div>
+      <button class="tb" id="btnCenter">CENTER</button>
+      <button class="tb" id="btnLock">LOCK</button>
+      <div class="tabs">
+        <button class="tab active" data-page="drive">DRIVE</button>
+        <button class="tab" data-page="mfd">MFD</button>
+      </div>
+      <button class="tb icon" id="btnSettings" aria-label="Settings">⚙</button>
+    </header>
+    <div class="steerbar"><div id="steerBar"></div><span class="mid"></span></div>
+    <div class="pages">
+      <div class="grid page active" id="page-drive"></div>
+      <div class="grid page" id="page-mfd"></div>
+    </div>
+  </section>
+
+  <!-- right paddle -->
+  <div class="paddle right" id="paddleR"><span class="pad-arrow">▼</span><span class="pad-text">DOWN</span></div>
+
+  <!-- RIGHT EDGE: throttle -->
+  <div class="pedal throttle" id="throttle" data-pedal="throttle">
+    <div class="fill"></div>
+    <div class="pedal-label">THROTTLE</div>
+    <div class="pedal-val" id="throttleVal">0</div>
+  </div>
+</main>
+
+<!-- start overlay -->
+<div class="overlay" id="startOverlay">
+  <div class="card">
+    <h1>Phone<span>Wheel</span></h1>
+    <p>Hold the phone in landscape like a wheel. Tilt to steer, thumbs on the edges for pedals.</p>
+    <p class="warn" id="secureWarn" hidden>Motion sensors are blocked on this address. Use <b>https://&lt;PC-IP&gt;:8766</b> over WiFi or <b>http://localhost:8765</b> over USB.</p>
+    <button class="big" id="btnStart">START</button>
+    <p class="small" id="startInfo"></p>
+  </div>
+</div>
+
+<!-- settings -->
+<div class="overlay" id="settingsOverlay" hidden>
+  <div class="card settings">
+    <div class="set-head"><h2>Settings</h2><button class="tb" id="btnCloseSettings">DONE</button></div>
+    <div id="settingsForm"></div>
+    <div class="set-foot">
+      <button class="tb" id="btnReset">RESET DEFAULTS</button>
+      <span class="small">Buttons map to vJoy 1–32. See README for the list.</span>
+    </div>
+  </div>
+</div>
+
+<div class="rotate">Rotate your phone to landscape</div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+pc/cert/
+pc/build/
+pc/dist/
+pc/*.spec
+__pycache__/
