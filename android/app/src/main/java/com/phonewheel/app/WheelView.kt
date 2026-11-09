@@ -106,7 +106,6 @@ class WheelView(
     private val rDash = RectF()
 
     private val pointers = HashMap<Int, Target>()
-    private val pressCount = IntArray(33)
     private var brakeOwner = -1
     private var throttleOwner = -1
     private var brakeOriginY = 0f
@@ -226,14 +225,19 @@ class WheelView(
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
-        when (ev.actionMasked) {
+        val action = ev.actionMasked
+        when (action) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                if (action == MotionEvent.ACTION_DOWN) clearStale()   // first finger: nothing can still be held
                 val i = ev.actionIndex
                 val id = ev.getPointerId(i)
-                val t = hitTest(ev.getX(i), ev.getY(i)) ?: return true
-                lastDownSize = ev.getTouchMajor(i)
-                pointers[id] = t
-                press(t, id, ev.getX(i), ev.getY(i))
+                pointers.remove(id)?.let { release(it, id) }            // id reused before we saw it lift
+                val t = hitTest(ev.getX(i), ev.getY(i))
+                if (t != null) {
+                    lastDownSize = ev.getTouchMajor(i)
+                    pointers[id] = t
+                    press(t, id, ev.getX(i), ev.getY(i))
+                }
             }
             MotionEvent.ACTION_MOVE -> {
                 for (i in 0 until ev.pointerCount) {
@@ -250,10 +254,47 @@ class WheelView(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 val id = ev.getPointerId(ev.actionIndex)
                 pointers.remove(id)?.let { release(it, id) }
+                if (action == MotionEvent.ACTION_UP) clearStale()      // last finger lifted: release everything
             }
             MotionEvent.ACTION_CANCEL -> releaseAll()
         }
+        // safety net: forget any finger Android no longer reports
+        if (action != MotionEvent.ACTION_CANCEL && pointers.isNotEmpty()) {
+            val alive = HashSet<Int>()
+            val lifting = if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_POINTER_UP) ev.getPointerId(ev.actionIndex) else -1
+            for (i in 0 until ev.pointerCount) {
+                val pid = ev.getPointerId(i)
+                if (pid != lifting) alive.add(pid)
+            }
+            val gone = pointers.keys.filter { it !in alive }
+            for (pid in gone) pointers.remove(pid)?.let { release(it, pid) }
+        }
+        updateButtonMask()
         return true
+    }
+
+    /** Releases pedals/buttons left over from touches Android never finished. Latched look buttons stay. */
+    private fun clearStale() {
+        for ((pid, t) in pointers.entries.toList()) release(t, pid)
+        pointers.clear()
+        if (brakeOwner != -1) { brakeOwner = -1; st.brkIn = 0f; detentZone = 0 }
+        if (throttleOwner != -1) { throttleOwner = -1; st.thr = 0f }
+        updateButtonMask()
+    }
+
+    /** Button state is rebuilt from the fingers currently on the screen, so it can never get stuck. */
+    private fun updateButtonMask() {
+        var held = 0
+        for (t in pointers.values) {
+            when (t.kind) {
+                Kind.PADDLE_UP -> held = held or 1
+                Kind.PADDLE_DOWN -> held = held or 2
+                Kind.BUTTON -> { val n = t.btn!!.num; if (!isLatch(n)) held = held or (1 shl (n - 1)) }
+                else -> {}
+            }
+        }
+        val m = held or latchMask
+        if (m != st.mask) { st.mask = m; changed() }
     }
 
     private fun press(t: Target, id: Int, x: Float, y: Float) {
@@ -286,7 +327,6 @@ class WheelView(
 
     fun releaseAll() {
         pointers.clear()
-        pressCount.fill(0)
         brakeOwner = -1; throttleOwner = -1; steerOwner = -1
         manualSteer = null
         latchMask = 0
@@ -304,27 +344,14 @@ class WheelView(
         val bit = 1 shl (num - 1)
         if (isLatch(num)) {
             val wasOn = latchMask and bit != 0
-            var lookMask = 0
-            for (n in lookButtons) lookMask = lookMask or (1 shl (n - 1))
             latchMask = if (wasOn) 0 else bit           // only one look direction at a time
-            st.mask = (st.mask and lookMask.inv()) or latchMask
-            onHaptic(vib)
-            changed()
-            return
         }
-        pressCount[num]++
-        st.mask = st.mask or bit
         onHaptic(vib)
-        changed()
+        updateButtonMask()
     }
 
-    private fun releaseButton(num: Int) {
-        if (isLatch(num)) return
-        if (pressCount[num] > 0) pressCount[num]--
-        if (pressCount[num] == 0) {
-            st.mask = st.mask and (1 shl (num - 1)).inv()
-            changed()
-        }
+    private fun releaseButton(@Suppress("UNUSED_PARAMETER") num: Int) {
+        // nothing to do: the mask is rebuilt from the fingers still on the screen
     }
 
     private fun pedalValue(r: RectF, y: Float, originY: Float, curve: Float): Float =
