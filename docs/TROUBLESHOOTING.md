@@ -57,7 +57,8 @@ This was the PC's safety cut-out reacting to a short WiFi stall. It used to rele
 
 ## Look left / right / back snaps back instantly
 
-- Update to v1.0.21 or newer: WiFi stalls used to release a held look button (see above).
+- Update to v1.0.22 or newer: WiFi stalls used to release a held look button (see above), and a light tap could register twice and switch the look straight back off.
+- The PhoneWheel window logs `[i] look button 21 released after only 30 ms` if the phone turns a look off quickly. No such line while the game snaps back means the game itself is resetting the camera.
 
 - In the app, look buttons are toggles by default (**SETUP → Buttons**). Check `joy.cpl`: the button should stay lit.
 - If the button stays lit but the game still snaps back, something else is resetting the camera:

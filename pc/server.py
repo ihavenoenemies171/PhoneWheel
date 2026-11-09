@@ -142,6 +142,7 @@ class Wheel:
         self._count = 0
         self.gaps = 0           # data gaps over 0.2 s this session
         self.gap_max = 0.0
+        self._look_on = {}
         self.apply()
 
     @property
@@ -150,6 +151,20 @@ class Wheel:
         for mask, _t in self.boxes.values():
             m |= mask
         return m
+
+    LOOK_BUTTONS = (21, 22, 23)
+
+    def _watch_look(self, old, new):
+        """Log look buttons that turn off very quickly - helps tell app-side flicker from game-side snap-back."""
+        now = time.monotonic()
+        for n in self.LOOK_BUTTONS:
+            bit = 1 << (n - 1)
+            if new & bit and not old & bit:
+                self._look_on[n] = now
+            elif old & bit and not new & bit and n in self._look_on:
+                held = now - self._look_on.pop(n)
+                if held < 0.4:
+                    print(f"\n[i] look button {n} released after only {held * 1000:.0f} ms")
 
     def apply(self):
         self.dev.set_axis(vjoy.AXIS_X, (self.steer + 1.0) / 2.0)
@@ -165,6 +180,7 @@ class Wheel:
         self.brk = max(0.0, min(1.0, b))
         self.clutch = max(0.0, min(1.0, c))
         self.hbrake = max(0.0, min(1.0, h))
+        self._watch_look(self.btn, mask & 0xFFFFFFFF)
         self.btn = mask & 0xFFFFFFFF
         now = time.monotonic()
         gap = now - self.last if self.last else 0.0

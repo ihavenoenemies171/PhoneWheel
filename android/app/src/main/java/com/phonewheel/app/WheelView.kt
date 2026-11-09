@@ -516,9 +516,16 @@ class WheelView(
 
     private fun isLatch(num: Int) = prefs.lookToggle && num in lookButtons
 
+    private val latchToggledAt = HashMap<Int, Long>()
+
     private fun pressButton(num: Int, vib: Long) {
         val bit = 1 shl (num - 1)
         if (isLatch(num)) {
+            // debounce: a light thumb can register as two taps a few ms apart ("chatter"),
+            // which would switch the look on and straight back off
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - (latchToggledAt[num] ?: 0L) < 350) return
+            latchToggledAt[num] = now
             val wasOn = latchMask and bit != 0
             latchMask = if (wasOn) 0 else bit           // only one look direction at a time
         }
