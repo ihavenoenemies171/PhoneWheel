@@ -67,7 +67,7 @@ class MainActivity : Activity(), SensorEventListener {
         pickSensor()
         @Suppress("DEPRECATION")
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-        haptics = Haptics(vibrator, prefs, tel)
+        haptics = Haptics(vibrator, prefs, tel, st)
 
         if (tiltSensor == null) toast("This phone has no motion sensor. Drag the steering bar to steer.")
     }

@@ -9,13 +9,22 @@ import kotlin.math.max
 import kotlin.random.Random
 
 /**
- * The phone's stand-in for force feedback: mixes game effects (from the PC) and button clicks
+ * The phone's stand-in for force feedback. Turns game effects (from the PC) and button clicks
  * into one vibration signal, updated 100 times a second.
+ *
+ * ESSENTIAL preset (default) is built to inform, not overwhelm:
+ *  - one effect at a time, by priority: impact > ABS/lock-up > wheelspin/slide > kerb hit > off-track
+ *  - context: lock-up only while braking, wheelspin only on throttle/coasting
+ *  - events: kerbs and off-track are short bursts, not constant buzzing
+ *  - adaptation: a slide that keeps going fades after ~1 s
+ *  - thresholds: small amounts of slip are ignored
+ * IMMERSIVE layers everything (road texture, shifts, rev limiter too).
  */
 class Haptics(
     private val vibrator: Vibrator?,
     private val prefs: Prefs,
     private val tel: Telem,
+    private val st: InputState,
 ) {
     private val hasVibrator = vibrator?.hasVibrator() == true
     private val hasAmplitude = hasVibrator && vibrator?.hasAmplitudeControl() == true
@@ -23,17 +32,29 @@ class Haptics(
     @Volatile private var running = false
     private var worker: Thread? = null
 
-    // one-shot events
+    // button clicks
     @Volatile private var pulseUntil = 0L
     @Volatile private var pulseAmp = 0f
     @Volatile private var testStart = 0L
 
+    // events
     private var lastImpactSeq = -1
     private var lastShiftSeq = -1
     private var impactUntil = 0L
     private var impactAmp = 0f
     private var shiftUntil = 0L
 
+    // essential-mode state
+    private var slipSince = 0L
+    private var slipQuietSince = 0L
+    private var kerbOn = false
+    private var kerbLastHit = 0L
+    private var kerbBurstUntil = 0L
+    private var offOn = false
+    private var offLastBurst = 0L
+    private var offBurstUntil = 0L
+
+    // motor
     private var lastIssued = 0f
     private var lastIssueT = 0L
     private var on = false
@@ -68,70 +89,121 @@ class Haptics(
         pulseUntil = SystemClock.elapsedRealtime() + ms
     }
 
-    /** Plays a 4-second demo: ABS, kerb, wheelspin, impact, shift. */
+    /** Plays each effect once, in order, so you can learn how they feel. */
     fun test() {
         testStart = SystemClock.elapsedRealtime()
     }
 
+    // ------------------------------------------------------------------ patterns
+    private fun absPulse(now: Long) = (now / 30) % 2 == 0L                 // ~16 Hz kick-back
+    private fun rattle(now: Long) = if ((now / 20) % 2 == 0L) 1f else 0.25f // rough, fast
+
     private fun tick() {
         val now = SystemClock.elapsedRealtime()
-        var amp = 0f
+        var amp = if (now < pulseUntil) pulseAmp else 0f
 
-        if (now < pulseUntil) amp = max(amp, pulseAmp)
-
-        var vAbs = 0f
-        var vKerb = 0f
-        var vSlip = 0f
-        var vRoad = 0f
-        var limiter = false
-        if (tel.vibeFresh(now)) {
-            vAbs = tel.vAbs; vKerb = tel.vKerb; vSlip = tel.vSlip; vRoad = tel.vRoad; limiter = tel.limiter
+        // event edges (always tracked so nothing fires late after switching presets)
+        val fresh = tel.vibeFresh(now)
+        if (fresh) {
             if (lastImpactSeq >= 0 && tel.impactSeq != lastImpactSeq) {
                 impactUntil = now + 150
                 impactAmp = 0.6f + 0.4f * tel.impactMag.coerceIn(0f, 1f)
             }
-            if (lastShiftSeq >= 0 && tel.shiftSeq != lastShiftSeq) shiftUntil = now + 45
+            if (lastShiftSeq >= 0 && tel.shiftSeq != lastShiftSeq) shiftUntil = now + 40
             lastImpactSeq = tel.impactSeq
             lastShiftSeq = tel.shiftSeq
         }
 
-        // demo sequence
         val tt = now - testStart
-        if (testStart != 0L && tt in 0..4200) {
-            when {
-                tt < 900 -> vAbs = 0.8f
-                tt < 1800 -> vKerb = 0.8f
-                tt < 2700 -> vSlip = 0.8f
-                tt < 3000 -> vRoad = 0.8f
-                tt < 3200 -> if (impactUntil < now) { impactUntil = now + 150; impactAmp = 1f }
-                tt < 3700 -> limiter = true
-                else -> if (shiftUntil < now && tt < 3760) shiftUntil = now + 45
-            }
+        val game = when {
+            !prefs.hapticsOn -> 0f
+            testStart != 0L && tt in 0..5200 -> demo(tt, now)
+            !fresh || prefs.hPreset == Prefs.PRESET_OFF -> 0f
+            prefs.hPreset == Prefs.PRESET_IMMERSIVE -> immersive(now)
+            else -> essential(now)
         }
-
-        if (prefs.hapticsOn) {
-            // ABS / lock-up: hard pulses ~16 Hz, like a pedal kicking back
-            if (vAbs > 0.04f && (now / 30) % 2 == 0L) amp = max(amp, prefs.hAbs * (0.55f + 0.45f * vAbs))
-            // kerbs: fast rough rattle
-            if (vKerb > 0.04f) {
-                val phase = if ((now / 20) % 2 == 0L) 1f else 0.3f
-                amp = max(amp, prefs.hKerb * vKerb * phase * (0.85f + 0.15f * Random.nextFloat()))
-            }
-            // wheelspin / sliding: smooth continuous rumble
-            if (vSlip > 0.04f) amp = max(amp, prefs.hSlip * vSlip * 0.9f)
-            // road texture / off-track
-            if (vRoad > 0.04f) amp = max(amp, prefs.hRoad * vRoad * (0.6f + 0.4f * Random.nextFloat()))
-            // rev limiter buzz
-            if (limiter && (now / 25) % 2 == 0L) amp = max(amp, prefs.hLimiter * 0.8f)
-            if (now < shiftUntil) amp = max(amp, prefs.hShift)
-            if (now < impactUntil) amp = max(amp, prefs.hImpact * impactAmp)
-            amp *= prefs.hMaster
-        } else {
-            amp = 0f
-        }
+        amp = max(amp, game * prefs.hMaster)
         drive(amp.coerceIn(0f, 1f), now)
     }
 
+    // ------------------------------------------------------------------ ESSENTIAL
+    private fun essential(now: Long): Float {
+        val braking = st.brk > 0.08f
+        val onThrottle = !braking && st.thr > 0.15f
+
+        // keep event state up to date even when a higher priority effect wins
+        val kerbHitNow = tel.vKerb > 0.15f && !kerbOn && now - kerbLastHit > 500
+        if (kerbHitNow) { kerbLastHit = now; kerbBurstUntil = now + 130 }
+        kerbOn = tel.vKerb > 0.1f
+        if (tel.vOff > 0.2f) {
+            if (!offOn || now - offLastBurst > 2000) { offLastBurst = now; offBurstUntil = now + 250 }
+            offOn = true
+        } else {
+            offOn = false
+        }
+
+        // 1. impact
+        if (now < impactUntil) return prefs.hImpact * impactAmp
+
+        // 2. ABS / lock-up, only meaningful while braking
+        if (braking && tel.vAbs > 0.15f) {
+            return if (absPulse(now)) prefs.hAbs * (0.6f + 0.4f * tel.vAbs) else 0f
+        }
+
+        // 3. wheelspin / slide, only off the brake; fades if it just keeps going
+        val slipThr = if (onThrottle) 0.25f else 0.35f
+        if (!braking && tel.vSlip > slipThr) {
+            if (slipSince == 0L) slipSince = now
+            slipQuietSince = 0L
+            val held = now - slipSince
+            val fade = if (held < 1200) 1f else max(0.35f, 1f - (held - 1200) / 1000f * 0.65f)
+            val strength = 0.45f + 0.55f * ((tel.vSlip - slipThr) / (1f - slipThr)).coerceIn(0f, 1f)
+            return prefs.hSlip * strength * fade
+        } else if (slipSince != 0L) {
+            if (slipQuietSince == 0L) slipQuietSince = now
+            if (now - slipQuietSince > 300) slipSince = 0L
+        }
+
+        // 4. kerb: short burst as you hit it
+        if (now < kerbBurstUntil) return prefs.hKerb * rattle(now)
+
+        // 5. off-track: burst when you leave the track, reminder every 2 s
+        if (now < offBurstUntil) return prefs.hOff * (0.6f + 0.4f * rattle(now))
+
+        return 0f
+    }
+
+    // ------------------------------------------------------------------ IMMERSIVE
+    private fun immersive(now: Long): Float {
+        var a = 0f
+        if (tel.vAbs > 0.04f && absPulse(now)) a = max(a, prefs.hAbs * (0.55f + 0.45f * tel.vAbs))
+        if (tel.vKerb > 0.04f) a = max(a, prefs.hKerb * tel.vKerb * rattle(now) * (0.85f + 0.15f * Random.nextFloat()))
+        if (tel.vSlip > 0.04f) a = max(a, prefs.hSlip * tel.vSlip * 0.9f)
+        if (tel.vOff > 0.04f) a = max(a, prefs.hOff * tel.vOff * (0.5f + 0.5f * Random.nextFloat()))
+        if (tel.vRoad > 0.04f) a = max(a, prefs.hRoad * tel.vRoad * (0.6f + 0.4f * Random.nextFloat()))
+        if (tel.limiter && (now / 25) % 2 == 0L) a = max(a, prefs.hLimiter * 0.8f)
+        if (now < shiftUntil) a = max(a, prefs.hShift)
+        if (now < impactUntil) a = max(a, prefs.hImpact * impactAmp)
+        return a
+    }
+
+    // ------------------------------------------------------------------ demo
+    private fun demo(tt: Long, now: Long): Float = when {
+        tt < 1000 -> if (absPulse(now)) prefs.hAbs else 0f                              // ABS / lock-up
+        tt < 1400 -> 0f
+        tt < 1530 || tt in 1800..1930 || tt in 2200..2330 -> prefs.hKerb * rattle(now)  // 3 kerb hits
+        tt < 2700 -> 0f
+        tt < 3700 -> prefs.hSlip * (0.45f + 0.55f * ((tt - 2700) / 1000f))              // wheelspin building
+        tt < 4000 -> 0f
+        tt < 4250 -> prefs.hOff * (0.6f + 0.4f * rattle(now))                           // off-track
+        tt < 4600 -> 0f
+        tt < 4750 -> prefs.hImpact                                                      // impact
+        tt < 5050 -> 0f
+        tt < 5090 -> prefs.hShift                                                       // shift tick
+        else -> 0f
+    }
+
+    // ------------------------------------------------------------------ motor
     private fun drive(amp: Float, now: Long) {
         val v = vibrator ?: return
         if (amp < 0.04f) {

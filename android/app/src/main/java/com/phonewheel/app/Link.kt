@@ -60,6 +60,7 @@ class Telem {
     @Volatile var vKerb = 0f
     @Volatile var vSlip = 0f
     @Volatile var vRoad = 0f
+    @Volatile var vOff = 0f
     @Volatile var impactSeq = 0
     @Volatile var impactMag = 0f
     @Volatile var shiftSeq = 0
@@ -92,6 +93,7 @@ class Telem {
             vSlip = f(3).coerceAtLeast(0f); vRoad = f(4).coerceAtLeast(0f)
             impactSeq = i(5); impactMag = f(6).coerceAtLeast(0f)
             shiftSeq = i(7); limiter = p[8] == "1"
+            vOff = if (p.size > 9) f(9).coerceAtLeast(0f) else 0f
             vibeAt = now
         }
     }

@@ -19,7 +19,7 @@ import time
 
 # ----------------------------------------------------------------------------- offsets
 ACC_PHY = dict(packetId=0, gas=4, brake=8, fuel=12, gear=16, rpms=20, speedKmh=28, accG=44, wheelSlip=56,
-               tc=204, pitLimiterOn=248, abs=252, finalFF=308, brakeBias=564, currentMaxRpm=588,
+               tc=204, numberOfTyresOut=244, pitLimiterOn=248, abs=252, finalFF=308, brakeBias=564, currentMaxRpm=588,
                tcinAction=672, absInAction=676, kerbVibration=784, slipVibrations=788, gVibrations=792,
                absVibrations=796, SIZE=800)
 ACC_GFX = dict(packetId=0, status=4, TC=1268, TCCut=1272, EngineMap=1276, ABS=1280, fuelXLap=1284,
@@ -125,7 +125,7 @@ class Frame:
     """One telemetry sample, game-independent."""
     __slots__ = ("game", "live", "gear", "rpm", "max_rpm", "shift_rpm", "speed", "tc", "tc2", "abs", "map",
                  "bb", "fuel", "fuel_laps", "pit_limiter", "abs_active", "tc_active", "delta_ms",
-                 "v_abs", "v_kerb", "v_slip", "v_road", "impact", "ffb")
+                 "v_abs", "v_kerb", "v_slip", "v_road", "v_off", "impact", "ffb")
 
     def __init__(self, game):
         self.game = game
@@ -147,7 +147,8 @@ class Frame:
         self.v_abs = 0.0         # ABS working / wheel lock-up
         self.v_kerb = 0.0        # rumble strips
         self.v_slip = 0.0        # wheelspin / sliding
-        self.v_road = 0.0        # off-track surfaces, road texture
+        self.v_road = 0.0        # road texture (bumps, from the game's FFB signal)
+        self.v_off = 0.0         # wheels off track: grass, gravel, dirt
         self.impact = 0.0        # >0 on the sample where an impact happened (strength 0..1)
         self.ffb = None          # raw steering force signal, if the game provides one
 
@@ -208,6 +209,9 @@ class AccReader:
         f.v_kerb = clamp01(p.f32(ACC_PHY["kerbVibration"]) * 1.5)
         f.v_slip = clamp01(p.f32(ACC_PHY["slipVibrations"]) * 1.5)
         f.v_road = clamp01(p.f32(ACC_PHY["gVibrations"]) * 1.5)
+        out = p.i32(ACC_PHY["numberOfTyresOut"])
+        if 2 <= out <= 4:
+            f.v_off = 0.3 + 0.15 * out
         f.ffb = p.f32(ACC_PHY["finalFF"])
         gx, gy, gz = p.f32s(ACC_PHY["accG"], 3)
         gmag = math.sqrt(gx * gx + gy * gy + gz * gz)
@@ -285,7 +289,7 @@ class R3eReader:
             f.v_kerb = clamp01((0.45 + 0.15 * rumble) * (0.4 + 0.6 * speed_k))
         rough = sum(1 for x in mtrl if x in (R3E_GRASS, R3E_DIRT, R3E_GRAVEL))
         if rough:
-            f.v_road = clamp01(0.25 * rough * (0.3 + 0.7 * speed_k))
+            f.v_off = clamp01(0.25 * rough * (0.3 + 0.7 * speed_k))
         ax, ay, az = m.f32s(R3E["local_acceleration"], 3)
         amag = math.sqrt(ax * ax + ay * ay + az * az)
         if self._last_acc is not None and f.live:
@@ -380,7 +384,7 @@ class Rf2Reader:
         if rumble:
             f.v_kerb = clamp01((0.45 + 0.15 * rumble) * (0.4 + 0.6 * speed_k))
         if rough:
-            f.v_road = clamp01(0.25 * rough * (0.3 + 0.7 * speed_k))
+            f.v_off = clamp01(0.25 * rough * (0.3 + 0.7 * speed_k))
         iet = t.f64(base + V["mLastImpactET"])
         if self._last_impact_et is not None and iet > self._last_impact_et and f.live:
             f.impact = clamp01(t.f64(base + V["mLastImpactMagnitude"]) / 3000.0 + 0.3)
@@ -470,6 +474,7 @@ class Telemetry:
         move_k = clamp01((f.speed - 8.0) / 22.0)       # 0 below 8 km/h, full from 30 km/h
         f.v_slip *= move_k
         f.v_road *= move_k
+        f.v_off *= move_k
         f.v_kerb *= clamp01((f.speed - 3.0) / 10.0)
         self.frame = f
         return f
@@ -494,7 +499,7 @@ class Telemetry:
         limiter = live and f.max_rpm > 0 and f.rpm >= f.max_rpm * 0.985 and f.gear > 0
         z = 0.0 if not live else 1.0
         return (f"v,{f.v_abs * z:.2f},{f.v_kerb * z:.2f},{f.v_slip * z:.2f},{f.v_road * z:.2f},"
-                f"{self.impact_seq},{self.impact_mag:.2f},{self.shift_seq},{1 if limiter else 0}")
+                f"{self.impact_seq},{self.impact_mag:.2f},{self.shift_seq},{1 if limiter else 0},{f.v_off * z:.2f}")
 
     def close(self):
         if self.reader:

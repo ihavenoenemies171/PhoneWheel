@@ -30,6 +30,8 @@ class Prefs(ctx: Context) {
 
     // haptics (0..1 gains)
     var hapticsOn = true
+    var hPreset = PRESET_ESSENTIAL
+    var hOff = 0.7f
     var hMaster = 1f
     var hAbs = 0.9f
     var hKerb = 0.7f
@@ -67,6 +69,8 @@ class Prefs(ctx: Context) {
         brakePressure = sp.getFloat("brakePressure", 0f)
         brakeRelease = sp.getFloat("brakeRelease", 0f)
         hapticsOn = sp.getBoolean("hapticsOn", sp.getBoolean("haptics", true))
+        hPreset = sp.getInt("hPreset", PRESET_ESSENTIAL)
+        hOff = sp.getFloat("hOff", 0.7f)
         hMaster = sp.getFloat("hMaster", 1f)
         hAbs = sp.getFloat("hAbs", 0.9f)
         hKerb = sp.getFloat("hKerb", 0.7f)
@@ -100,6 +104,8 @@ class Prefs(ctx: Context) {
             .putFloat("brakePressure", brakePressure)
             .putFloat("brakeRelease", brakeRelease)
             .putBoolean("hapticsOn", hapticsOn)
+            .putInt("hPreset", hPreset)
+            .putFloat("hOff", hOff)
             .putFloat("hMaster", hMaster)
             .putFloat("hAbs", hAbs)
             .putFloat("hKerb", hKerb)
@@ -131,5 +137,8 @@ class Prefs(ctx: Context) {
         const val MODE_USB = 1     // USB cable via adb reverse
         const val MODE_MANUAL = 2  // WiFi, typed PC address
         const val PORT = 8767
+        const val PRESET_ESSENTIAL = 0  // only actionable feedback, one effect at a time
+        const val PRESET_IMMERSIVE = 1  // everything, layered
+        const val PRESET_OFF = 2        // no game effects (button clicks still work)
     }
 }

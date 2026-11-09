@@ -162,18 +162,37 @@ object SettingsDialog {
 
         // ---------------------------------------------------------- vibration
         header("VIBRATION (FORCE FEEDBACK)")
-        hint(actions.vibrationInfo + " Effects come from the game: ABS / lock-ups, kerbs, wheelspin, " +
-             "road surface, impacts, gear shifts, rev limiter.")
-        check("Vibration on", "", p.hapticsOn) { p.hapticsOn = it }
+        hint(actions.vibrationInfo)
+        val presetGroup = RadioGroup(act)
+        val presetLabels = listOf(
+            "Essential – only what you can act on, one effect at a time (recommended)",
+            "Immersive – everything layered: road texture, shifts, rev limiter",
+            "Off – no game vibration (button clicks still work)",
+        )
+        val presetIds = IntArray(3)
+        presetLabels.forEachIndexed { i, l ->
+            val rb = RadioButton(act).apply {
+                id = View.generateViewId(); text = l; setTextColor(Color.WHITE); textSize = 14f
+            }
+            presetIds[i] = rb.id
+            presetGroup.addView(rb)
+        }
+        presetGroup.check(presetIds[p.hPreset.coerceIn(0, 2)])
+        presetGroup.setOnCheckedChangeListener { _, checked -> p.hPreset = presetIds.indexOf(checked).coerceAtLeast(0) }
+        root.addView(presetGroup)
+        hint("Essential: lock-up/ABS only while braking, wheelspin only off the brake, a short burst " +
+             "when you hit a kerb or leave the track, a jolt on impacts. Long slides fade after a second.")
         buttonRow("Test all effects" to { actions.testVibration() })
+        check("Vibration on", "Master switch, including button clicks", p.hapticsOn) { p.hapticsOn = it }
         pct("Overall strength", "", p.hMaster) { p.hMaster = it }
-        pct("ABS / wheel lock-up", "Pulses when ABS works or the fronts lock", p.hAbs) { p.hAbs = it }
-        pct("Kerbs", "Rattle on rumble strips", p.hKerb) { p.hKerb = it }
-        pct("Wheelspin / slide", "Rumble when the rears spin or the car slides", p.hSlip) { p.hSlip = it }
-        pct("Road surface", "Grass, gravel and road texture", p.hRoad) { p.hRoad = it }
-        pct("Impacts", "Jolt on contact", p.hImpact) { p.hImpact = it }
-        pct("Gear shift", "Kick on every shift", p.hShift) { p.hShift = it }
-        pct("Rev limiter", "Buzz at the limiter", p.hLimiter) { p.hLimiter = it }
+        pct("ABS / wheel lock-up", "Fast pulses", p.hAbs) { p.hAbs = it }
+        pct("Wheelspin / slide", "Smooth rumble", p.hSlip) { p.hSlip = it }
+        pct("Kerbs", "Short rough rattle", p.hKerb) { p.hKerb = it }
+        pct("Off track", "Grass / gravel", p.hOff) { p.hOff = it }
+        pct("Impacts", "One hard jolt", p.hImpact) { p.hImpact = it }
+        pct("Road texture", "Immersive only", p.hRoad) { p.hRoad = it }
+        pct("Gear shift", "Immersive only – single tick", p.hShift) { p.hShift = it }
+        pct("Rev limiter", "Immersive only", p.hLimiter) { p.hLimiter = it }
         pct("Button clicks", "Buzz when pressing wheel buttons", p.hButtons) { p.hButtons = it }
 
         // ---------------------------------------------------------- dashboard

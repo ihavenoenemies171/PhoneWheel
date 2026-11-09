@@ -99,7 +99,16 @@ PhoneWheel.exe reads live data from the game and sends it to the phone. The dash
 | Gear shift | Short kick | ✓ | ✓ | ✓ |
 | Rev limiter | Buzz | ✓ | ✓ | ✓ |
 
-In the app, **SETUP → Vibration** has a strength slider for each effect and **Test all effects**.
+In the app, **SETUP → Vibration** has three presets:
+
+- **Essential (default):** only feedback you can act on, and one effect at a time.
+  - Priority order: impact, then lock-up/ABS, then wheelspin/slide, then kerb hit, then off-track.
+  - Lock-up and ABS only play while you're braking. Wheelspin only plays when you're off the brake. Small amounts of slip are ignored.
+  - Kerbs and leaving the track give a short burst, not constant buzzing. A slide that keeps going fades after about a second.
+- **Immersive:** every effect layered, including road texture, gear shift ticks and the rev limiter.
+- **Off:** no game vibration. Button clicks still work.
+
+Each effect has its own strength slider. **Test all effects** plays each one in turn so you can learn what they feel like: ABS, 3 kerb hits, wheelspin building up, off-track, impact, then a shift tick.
 
 The **dashboard** shows shift lights (they flash blue at the shift point, and alternate when the pit limiter is on), gear, speed, TC / TC2 / ABS / MAP / brake bias, fuel and laps left, and the lap delta in ACC. The TC and ABS boxes light up when those systems are working. A game that doesn't report a value shows "–".
 
