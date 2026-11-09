@@ -414,8 +414,80 @@ class WheelView(
 
         for (b in buttons) if (b.page == page) drawButton(c, b)
         if (!rDash.isEmpty) drawDash(c)
+        drawFlashes(c)
         if (st.bindAxis != 0) drawBindBanner(c)
         postInvalidateOnAnimation() // live dashboard / pedals
+    }
+
+    // ------------------------------------------------------------------ visual feedback
+    // Big, bright cues meant to be caught in peripheral vision while you look at the monitor.
+    private var flashMarkerSeq = -1
+    private var flashMarkerAt = 0L
+    private var flashCoachAt = 0L
+
+    private fun drawFlashes(c: Canvas) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val bright = prefs.flashBright.coerceIn(0.1f, 1f)
+        val fresh = tel.vibeFresh(now)
+
+        // brake marker: two full-screen edge flashes, in time with the ticks
+        if (flashMarkerSeq >= 0 && tel.markerSeq != flashMarkerSeq) flashMarkerAt = now
+        flashMarkerSeq = tel.markerSeq
+        val mt = now - flashMarkerAt
+        if (flashMarkerAt != 0L && Prefs.flashes(prefs.fbMarker) && (mt in 0..110 || mt in 170..280)) {
+            fill.color = Color.argb((90 * bright).toInt(), 255, 255, 255)
+            c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
+            edge(c, 0xFFFFFFFF.toInt(), 18 * dp, bright)
+            return
+        }
+
+        // shift point: whole edge blinks blue
+        if (prefs.flashShift && tel.dashFresh(now)) {
+            val shift = if (tel.shiftRpm > 0) tel.shiftRpm else tel.maxRpm
+            if (shift > 0 && tel.rpm >= shift && tel.gear > 0 && (now / 70) % 2 == 0L) edge(c, blue, 14 * dp, bright)
+        }
+
+        // ABS / lock-up: brake strip pulses orange (only while braking, like the vibration)
+        if (fresh && Prefs.flashes(prefs.fbAbs) && st.brk > 0.08f && tel.vAbs > 0.15f && (now / 60) % 2 == 0L) {
+            glow(c, rBrake, orange, bright)
+        }
+        // wheelspin: throttle strip glows yellow
+        if (fresh && Prefs.flashes(prefs.fbSlip) && st.brk <= 0.08f && tel.vSlip > 0.3f) {
+            glow(c, rThrottle, yellow, bright * (0.5f + 0.5f * tel.vSlip.coerceIn(0f, 1f)))
+        }
+
+        // coach message: short green / red / blue glow around the screen
+        if (prefs.flashCoach && prefs.coachMessages && tel.coachAt != 0L && tel.coachAt != flashCoachAt) {
+            flashCoachAt = tel.coachAt
+        }
+        val ct = now - flashCoachAt
+        if (prefs.flashCoach && flashCoachAt != 0L && ct in 0..500) {
+            val col = when (tel.coachTone) { "good" -> green; "bad" -> red; else -> blue }
+            edge(c, col, 10 * dp, bright * (1f - ct / 500f))
+        }
+    }
+
+    private fun edge(c: Canvas, color: Int, thick: Float, alpha: Float) {
+        fill.color = color
+        fill.alpha = (255 * alpha).toInt().coerceIn(0, 255)
+        val w = width.toFloat()
+        val h = height.toFloat()
+        c.drawRect(0f, 0f, w, thick, fill)
+        c.drawRect(0f, h - thick, w, h, fill)
+        c.drawRect(0f, 0f, thick, h, fill)
+        c.drawRect(w - thick, 0f, w, h, fill)
+        fill.alpha = 255
+    }
+
+    private fun glow(c: Canvas, r: RectF, color: Int, alpha: Float) {
+        fill.color = color
+        fill.alpha = (150 * alpha).toInt().coerceIn(0, 255)
+        c.drawRoundRect(r, 12 * dp, 12 * dp, fill)
+        fill.alpha = 255
+        stroke.color = color
+        stroke.strokeWidth = 4 * dp
+        c.drawRoundRect(r, 12 * dp, 12 * dp, stroke)
+        stroke.strokeWidth = 1 * dp
     }
 
     // ------------------------------------------------------------------ brake trace

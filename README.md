@@ -129,6 +129,20 @@ Each effect has its own strength slider. **Test all effects** plays each one in 
 
 The **dashboard** shows shift lights (they flash blue at the shift point, and alternate when the pit limiter is on), gear, speed, TC / TC2 / ABS / MAP / brake bias, fuel and laps left, and the lap delta in ACC. The TC and ABS boxes light up when those systems are working. A game that doesn't report a value shows "–".
 
+## Vibrate or flash
+
+In **SETUP → Vibrate or flash**, choose how each signal reaches you: **Vibrate**, **Flash** or **Both**. The flashes are big and bright so you catch them in your peripheral vision while watching the monitor.
+
+| Signal | Flash |
+|---|---|
+| Brake marker (default: both) | The whole screen flashes white twice, in time with the ticks |
+| ABS / lock-up (default: vibrate) | The brake strip pulses orange |
+| Wheelspin / slide (default: vibrate) | The throttle strip glows yellow |
+| Shift point (on) | The screen edge blinks blue |
+| Coach messages (on) | A short green (better) or red (worse) glow around the screen |
+
+**Flash brightness** sets how strong the flashes are.
+
 ## Driving coach
 
 PhoneWheel.exe records every lap against track position and compares it with **your best clean lap** on the same track and car. Best laps are saved next to PhoneWheel.exe (`best_laps` folder), so the coach is ready from the first lap of your next session. Drive **one clean lap** to set the reference; it updates whenever you go faster. Laps in the pits, invalid laps and incomplete laps don't count.

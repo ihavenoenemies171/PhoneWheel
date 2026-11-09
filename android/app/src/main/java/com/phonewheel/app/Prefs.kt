@@ -58,6 +58,14 @@ class Prefs(ctx: Context) {
     var showDash = true
     var ledStart = 82f       // % of shift rpm where the first LED lights
 
+    // visual feedback: FB_VIBRATE / FB_FLASH / FB_BOTH per signal
+    var fbMarker = FB_BOTH
+    var fbAbs = FB_VIBRATE
+    var fbSlip = FB_VIBRATE
+    var flashShift = true     // screen edge blinks blue at the shift point
+    var flashCoach = true     // short green/red glow with coach messages
+    var flashBright = 0.8f
+
     // misc
     var showNums = false
 
@@ -102,6 +110,12 @@ class Prefs(ctx: Context) {
         coachMessages = sp.getBoolean("coachMessages", true)
         showDash = sp.getBoolean("showDash", true)
         ledStart = sp.getFloat("ledStart", 82f)
+        fbMarker = sp.getInt("fbMarker", FB_BOTH)
+        fbAbs = sp.getInt("fbAbs", FB_VIBRATE)
+        fbSlip = sp.getInt("fbSlip", FB_VIBRATE)
+        flashShift = sp.getBoolean("flashShift", true)
+        flashCoach = sp.getBoolean("flashCoach", true)
+        flashBright = sp.getFloat("flashBright", 0.8f)
         showNums = sp.getBoolean("showNums", false)
     }
 
@@ -145,6 +159,12 @@ class Prefs(ctx: Context) {
             .putBoolean("coachMessages", coachMessages)
             .putBoolean("showDash", showDash)
             .putFloat("ledStart", ledStart)
+            .putInt("fbMarker", fbMarker)
+            .putInt("fbAbs", fbAbs)
+            .putInt("fbSlip", fbSlip)
+            .putBoolean("flashShift", flashShift)
+            .putBoolean("flashCoach", flashCoach)
+            .putFloat("flashBright", flashBright)
             .putBoolean("showNums", showNums)
             .apply()
     }
@@ -170,5 +190,10 @@ class Prefs(ctx: Context) {
         const val PRESET_ESSENTIAL = 0  // only actionable feedback, one effect at a time
         const val PRESET_IMMERSIVE = 1  // everything, layered
         const val PRESET_OFF = 2        // no game effects (button clicks still work)
+        const val FB_VIBRATE = 0
+        const val FB_FLASH = 1
+        const val FB_BOTH = 2
+        fun vibrates(mode: Int) = mode != FB_FLASH
+        fun flashes(mode: Int) = mode != FB_VIBRATE
     }
 }

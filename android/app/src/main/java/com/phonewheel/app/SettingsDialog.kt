@@ -198,6 +198,32 @@ object SettingsDialog {
         pct("Button clicks", "Buzz when pressing wheel buttons", p.hButtons) { p.hButtons = it }
 
         // ---------------------------------------------------------- dashboard
+        header("VIBRATE OR FLASH")
+        hint("Choose how each signal reaches you. Flashes are big screen-edge / pedal-strip lights, " +
+             "made to be noticed from the corner of your eye while you watch the monitor.")
+        fun modeRow(label: String, value: Int, set: (Int) -> Unit) {
+            root.addView(TextView(act).apply {
+                text = label; setTextColor(Color.WHITE); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+                setPadding(0, (8 * dp).toInt(), 0, 0)
+            })
+            val g = RadioGroup(act).apply { orientation = RadioGroup.HORIZONTAL }
+            val ids = IntArray(3)
+            listOf("Vibrate", "Flash", "Both").forEachIndexed { i, l ->
+                val rb = RadioButton(act).apply { id = View.generateViewId(); text = l; setTextColor(Color.WHITE); textSize = 14f }
+                ids[i] = rb.id
+                g.addView(rb)
+            }
+            g.check(ids[value.coerceIn(0, 2)])
+            g.setOnCheckedChangeListener { _, checked -> set(ids.indexOf(checked).coerceAtLeast(0)) }
+            root.addView(g)
+        }
+        modeRow("Brake marker", p.fbMarker) { p.fbMarker = it }
+        modeRow("ABS / lock-up", p.fbAbs) { p.fbAbs = it }
+        modeRow("Wheelspin / slide", p.fbSlip) { p.fbSlip = it }
+        check("Flash at shift point", "Screen edge blinks blue when it's time to shift", p.flashShift) { p.flashShift = it }
+        check("Flash with coach messages", "Short green (better) / red (worse) glow", p.flashCoach) { p.flashCoach = it }
+        pct("Flash brightness", "", p.flashBright) { p.flashBright = it }
+
         header("DRIVING COACH")
         hint("Compares every lap with your best lap on the same track and car (saved on the PC, so it " +
              "carries over to your next session). Drive one clean lap to set the reference.")

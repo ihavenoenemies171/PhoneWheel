@@ -115,7 +115,7 @@ class Haptics(
         if (lastMarkerSeq >= 0 && tel.markerSeq != lastMarkerSeq) markerAt = now
         lastMarkerSeq = tel.markerSeq
         val mt = now - markerAt
-        if (markerAt != 0L && prefs.hapticsOn && (mt in 0..30 || mt in 100..130)) {
+        if (markerAt != 0L && prefs.hapticsOn && Prefs.vibrates(prefs.fbMarker) && (mt in 0..30 || mt in 100..130)) {
             drive(prefs.hMarker.coerceIn(0f, 1f), now)
             return
         }
@@ -164,13 +164,13 @@ class Haptics(
         if (now < impactUntil) return prefs.hImpact * impactAmp
 
         // 2. ABS / lock-up, only meaningful while braking
-        if (braking && tel.vAbs > 0.15f) {
+        if (braking && tel.vAbs > 0.15f && Prefs.vibrates(prefs.fbAbs)) {
             return if (absPulse(now)) prefs.hAbs * (0.6f + 0.4f * tel.vAbs) else 0f
         }
 
         // 3. wheelspin / slide, only off the brake; fades if it just keeps going
         val slipThr = if (onThrottle) 0.25f else 0.35f
-        if (!braking && tel.vSlip > slipThr) {
+        if (!braking && tel.vSlip > slipThr && Prefs.vibrates(prefs.fbSlip)) {
             if (slipSince == 0L) slipSince = now
             slipQuietSince = 0L
             val held = now - slipSince
@@ -194,9 +194,9 @@ class Haptics(
     // ------------------------------------------------------------------ IMMERSIVE
     private fun immersive(now: Long): Float {
         var a = 0f
-        if (tel.vAbs > 0.04f && absPulse(now)) a = max(a, prefs.hAbs * (0.55f + 0.45f * tel.vAbs))
+        if (tel.vAbs > 0.04f && absPulse(now) && Prefs.vibrates(prefs.fbAbs)) a = max(a, prefs.hAbs * (0.55f + 0.45f * tel.vAbs))
         if (tel.vKerb > 0.04f) a = max(a, prefs.hKerb * tel.vKerb * rattle(now) * (0.85f + 0.15f * Random.nextFloat()))
-        if (tel.vSlip > 0.04f) a = max(a, prefs.hSlip * tel.vSlip * 0.9f)
+        if (tel.vSlip > 0.04f && Prefs.vibrates(prefs.fbSlip)) a = max(a, prefs.hSlip * tel.vSlip * 0.9f)
         if (tel.vOff > 0.04f) a = max(a, prefs.hOff * tel.vOff * (0.5f + 0.5f * Random.nextFloat()))
         if (tel.vRoad > 0.04f) a = max(a, prefs.hRoad * tel.vRoad * (0.6f + 0.4f * Random.nextFloat()))
         if (tel.limiter && (now / 25) % 2 == 0L) a = max(a, prefs.hLimiter * 0.8f)
