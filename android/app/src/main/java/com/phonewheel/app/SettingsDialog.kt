@@ -257,7 +257,7 @@ object SettingsDialog {
         root.addView(presetGroup)
         hint("Essential: lock-up/ABS only while braking, wheelspin only off the brake, a short burst " +
              "when you hit a kerb or leave the track, a jolt on impacts. Long slides fade after a second.")
-        buttonRow("Test all effects" to { actions.testVibration() })
+        buttonRow("Test effects (all or one by one)…" to { dialog?.dismiss(); actions.testVibration() })
         check("Vibration on", "Master switch, including button clicks", p.hapticsOn) { p.hapticsOn = it }
         pct("Overall strength", "", p.hMaster) { p.hMaster = it }
         pct("ABS / wheel lock-up", "Fast pulses", p.hAbs) { p.hAbs = it }

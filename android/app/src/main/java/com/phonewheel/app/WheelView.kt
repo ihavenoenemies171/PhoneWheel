@@ -37,6 +37,8 @@ class WheelView(
     var onSettings: () -> Unit = {}
     var onHaptic: (Long) -> Unit = {}
     var onDetent: () -> Unit = {}
+    /** Effect currently playing in the effect tester (for its flash + the TESTING banner). */
+    var tester: () -> Haptics.Playing? = { null }
 
     // ------------------------------------------------------------------ layout (editable, per profile)
     var layout: LayoutModel = LayoutModel.fromJson(prefs.layoutJson)
@@ -650,7 +652,7 @@ class WheelView(
         val dashLive = tel.dashFresh(now)
         val shift = if (tel.shiftRpm > 0) tel.shiftRpm else tel.maxRpm
         val animating =
-            st.bindAxis != 0 ||
+            st.bindAxis != 0 || tester() != null ||
             traceActive || (traceN > 1 && prefs.brakeTrace && now - traceEndAt < 6000) ||
             (flashMarkerAt != 0L && now - flashMarkerAt < 320) ||
             (flashCoachAt != 0L && now - flashCoachAt < 520) ||
@@ -673,6 +675,7 @@ class WheelView(
     private fun drawFlashes(c: Canvas) {
         val now = android.os.SystemClock.elapsedRealtime()
         val bright = prefs.flashBright.coerceIn(0.1f, 1f)
+        tester()?.let { p -> drawTestFlash(c, p, now, bright); return }
         val fresh = tel.vibeFresh(now)
 
         // brake marker: two full-screen edge flashes, in time with the ticks
@@ -726,6 +729,46 @@ class WheelView(
             val col = when (tel.coachTone) { "good" -> green; "bad" -> red; else -> blue }
             edge(c, col, 10 * dp, bright * (1f - ct / 500f))
         }
+    }
+
+    /** Flash for the effect being tested (only if that effect is set to Flash or Both), plus a banner. */
+    private fun drawTestFlash(c: Canvas, p: Haptics.Playing, now: Long, bright: Float) {
+        val e = p.effect
+        val t = p.t
+        val active = t < e.ms
+        val mode = e.mode()
+        if (active && (mode != null && Prefs.flashes(mode) || (e.id == "shift" && prefs.flashShift))) {
+            when (e.id) {
+                "marker" -> if (t in 0..110 || t in 170..280) {
+                    fill.color = Color.argb((90 * bright).toInt(), 255, 255, 255)
+                    c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
+                    edge(c, 0xFFFFFFFF.toInt(), 18 * dp, bright)
+                }
+                "abs" -> if ((now / 60) % 2 == 0L) glow(c, rBrake, orange, bright)
+                "slip" -> glow(c, rThrottle, yellow, bright * (0.5f + 0.5f * t / e.ms))
+                "under" -> {
+                    fill.color = blue; fill.alpha = (255 * bright * 0.8f).toInt()
+                    c.drawRect(0f, 0f, width.toFloat(), 14 * dp, fill); fill.alpha = 255
+                }
+                "over" -> if ((now / 50) % 2 == 0L) {
+                    fill.color = red; fill.alpha = (255 * bright).toInt()
+                    c.drawRect(0f, 0f, 16 * dp, height.toFloat(), fill)
+                    c.drawRect(width - 16 * dp, 0f, width.toFloat(), height.toFloat(), fill); fill.alpha = 255
+                }
+                "shift" -> if ((now / 70) % 2 == 0L) edge(c, blue, 14 * dp, bright)
+            }
+        }
+        // banner at the top of the wheel (stays visible above the tester panel)
+        val label = (if (p.total > 1) "TESTING ${p.index + 1}/${p.total} · " else "TESTING · ") + e.name.uppercase()
+        text.textSize = 16 * dp
+        val w = text.measureText(label) + 36 * dp
+        tmp.set(width / 2f - w / 2, 20 * dp, width / 2f + w / 2, 54 * dp)
+        fill.color = 0xEE000000.toInt()
+        c.drawRoundRect(tmp, 12 * dp, 12 * dp, fill)
+        stroke.color = yellow
+        c.drawRoundRect(tmp, 12 * dp, 12 * dp, stroke)
+        text.color = yellow
+        c.drawText(label, tmp.centerX(), tmp.centerY() + 6 * dp, text)
     }
 
     private fun edge(c: Canvas, color: Int, thick: Float, alpha: Float) {

@@ -112,7 +112,11 @@ PhoneWheel.exe reads the game's live data and the phone turns it into vibration.
 | Brake detent | A tiny tick at 25 / 50 / 75 % brake |
 | Gear shift, rev limiter (Immersive) | A single tick, or a buzz |
 
-Each effect has a strength slider. **Test all effects** plays them in order so you can learn them. Phones that can only switch their motor on and off (no strength control) get simpler effects.
+Each effect has a strength slider. To learn how they feel, open **SETUP → Vibration → Test effects**. A panel opens at the bottom of the screen:
+- **Play all** goes through every effect in order.
+- **Tap any effect** to play just that one, as often as you like.
+- The panel shows the name of the effect that's playing, what it means, and whether it's set to vibration, flash or both.
+- A **TESTING** banner appears at the top of the wheel, and flashes show on the screen edges and pedal strips exactly as they would while driving. Phones that can only switch their motor on and off (no strength control) get simpler effects.
 
 ## Vibrate or flash
 

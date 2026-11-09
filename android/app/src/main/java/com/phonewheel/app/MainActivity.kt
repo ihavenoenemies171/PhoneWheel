@@ -66,6 +66,7 @@ class MainActivity : Activity(), SensorEventListener {
         wheel.onSettings = { openSettings() }
         wheel.onHaptic = { ms -> buzz(ms) }
         wheel.onDetent = { haptics.detent() }
+        wheel.tester = { haptics.playing() }
         wheel.onSteerModeChanged = { updateSteer() }
         wheel.onEditTile = { page, item, isNew -> editTile(page, item, isNew) }
         wheel.onEditOptions = {
@@ -291,7 +292,10 @@ class MainActivity : Activity(), SensorEventListener {
         val oldHz = prefs.sensorHz
         val oldRole = prefs.role
         SettingsDialog.show(this, prefs, SettingsDialog.Actions(
-            testVibration = { haptics.test() },
+            testVibration = {
+                EffectTester.show(this, prefs, haptics, redraw = { wheel.requestFrame() }) { hideSystemUi() }
+                wheel.requestFrame()
+            },
             bind = { axis ->
                 st.bindAxis = axis
                 st.bindStartMs = SystemClock.elapsedRealtime()

@@ -36,7 +36,6 @@ class Haptics(
     // button clicks
     @Volatile private var pulseUntil = 0L
     @Volatile private var pulseAmp = 0f
-    @Volatile private var testStart = 0L
 
     // events
     private var lastImpactSeq = -1
@@ -108,10 +107,57 @@ class Haptics(
         wakeUp()
     }
 
-    /** Plays each effect once, in order, so you can learn how they feel. */
-    fun test() {
-        testStart = SystemClock.elapsedRealtime()
-        wakeUp()
+    // ------------------------------------------------------------------ effect tester
+    /** One testable effect. [mode] = its Vibrate/Flash/Both setting (null = vibration only). */
+    class Effect(
+        val id: String, val name: String, val desc: String, val ms: Long,
+        val mode: () -> Int?, val amp: (t: Long, now: Long) -> Float,
+    )
+
+    val effects: List<Effect> = listOf(
+        Effect("abs", "ABS / lock-up", "Fast even pulses, like the pedal kicking back", 1000, { prefs.fbAbs }) { _, n -> if (absPulse(n)) prefs.hAbs else 0f },
+        Effect("under", "Understeer", "Soft slow pulse: the front tyres have run out of grip", 1200, { prefs.fbUnder }) { _, n -> if ((n % 160) < 72) prefs.hUnder * 0.8f else 0f },
+        Effect("over", "Oversteer", "Sharp urgent buzz: the rear is starting to slide", 1000, { prefs.fbOver }) { _, n -> prefs.hOver * (if ((n / 15) % 2 == 0L) 1f else 0.5f) },
+        Effect("slip", "Wheelspin / slide", "Smooth rumble that builds up", 1000, { prefs.fbSlip }) { t, _ -> prefs.hSlip * (0.45f + 0.55f * (t / 1000f)) },
+        Effect("kerb", "Kerbs", "Short rough rattle each time you hit a kerb (3 hits)", 1000, { null }) { t, n -> if (t < 130 || t in 400..530 || t in 800..930) prefs.hKerb * rattle(n) else 0f },
+        Effect("off", "Off track", "Rough burst when you leave the track", 450, { null }) { t, n -> if (t < 250) prefs.hOff * (0.6f + 0.4f * rattle(n)) else 0f },
+        Effect("impact", "Impact", "One hard jolt on contact", 450, { null }) { t, _ -> if (t < 150) prefs.hImpact else 0f },
+        Effect("marker", "Brake marker", "Tick-tick just before your best lap's braking point", 450, { prefs.fbMarker }) { t, _ -> if (t in 0..30 || t in 100..130) prefs.hMarker else 0f },
+        Effect("detent", "Brake detents", "Tiny ticks at 25 / 50 / 75 % brake", 750, { null }) { t, _ -> if (t in 0..14 || t in 300..314 || t in 600..614) prefs.hDetent else 0f },
+        Effect("shift", "Gear shift", "Single tick on every shift (Immersive preset)", 350, { null }) { t, _ -> if (t < 40) prefs.hShift else 0f },
+        Effect("limiter", "Rev limiter", "Buzz at the limiter (Immersive preset)", 900, { null }) { _, n -> if ((n / 25) % 2 == 0L) prefs.hLimiter * 0.8f else 0f },
+        Effect("road", "Road texture", "Light grainy texture from the road (Immersive preset)", 900, { null }) { _, _ -> prefs.hRoad * (0.6f + 0.4f * Random.nextFloat()) },
+    )
+
+    private val GAP = 450L
+    @Volatile private var queue: List<Effect> = emptyList()
+    @Volatile private var queueStart = 0L
+
+    /** Plays every effect in order. */
+    fun playAll() { queue = effects; queueStart = SystemClock.elapsedRealtime(); wakeUp() }
+
+    /** Plays one effect. */
+    fun play(id: String) {
+        val e = effects.firstOrNull { it.id == id } ?: return
+        queue = listOf(e); queueStart = SystemClock.elapsedRealtime(); wakeUp()
+    }
+
+    fun stopTest() { queue = emptyList() }
+
+    /** What the tester is doing right now: (effect, ms into it, index, total) or null when idle. */
+    data class Playing(val effect: Effect, val t: Long, val index: Int, val total: Int)
+
+    fun playing(now: Long = SystemClock.elapsedRealtime()): Playing? {
+        val q = queue
+        if (q.isEmpty()) return null
+        var t = now - queueStart
+        for ((i, e) in q.withIndex()) {
+            if (t < e.ms) return Playing(e, t, i, q.size)
+            t -= e.ms + GAP
+            if (t < 0) return Playing(e, e.ms, i, q.size)   // in the gap after this effect
+        }
+        queue = emptyList()
+        return null
     }
 
     // ------------------------------------------------------------------ patterns
@@ -144,17 +190,18 @@ class Haptics(
             lastShiftSeq = tel.shiftSeq
         }
 
-        val tt = now - testStart
+        val demo = playing(now)
         val game = when {
             !prefs.hapticsOn -> 0f
-            testStart != 0L && tt in 0..7600 -> demo(tt, now)
+            demo != null -> if (demo.t < demo.effect.ms && Prefs.vibrates(demo.effect.mode() ?: Prefs.FB_VIBRATE))
+                                demo.effect.amp(demo.t, now) else 0f
             !fresh || prefs.hPreset == Prefs.PRESET_OFF -> 0f
             prefs.hPreset == Prefs.PRESET_IMMERSIVE -> immersive(now)
             else -> essential(now)
         }
         amp = max(amp, game * prefs.hMaster)
         drive(amp.coerceIn(0f, 1f), now)
-        return on || fresh || now < pulseUntil || (testStart != 0L && tt in 0..7600) || mt in 0..200
+        return on || fresh || now < pulseUntil || demo != null || mt in 0..200
     }
 
     // ------------------------------------------------------------------ ESSENTIAL
@@ -228,26 +275,6 @@ class Haptics(
         if (now < shiftUntil) a = max(a, prefs.hShift)
         if (now < impactUntil) a = max(a, prefs.hImpact * impactAmp)
         return a
-    }
-
-    // ------------------------------------------------------------------ demo
-    private fun demo(tt: Long, now: Long): Float = when {
-        tt < 1000 -> if (absPulse(now)) prefs.hAbs else 0f                              // ABS / lock-up
-        tt < 1400 -> 0f
-        tt < 1530 || tt in 1800..1930 || tt in 2200..2330 -> prefs.hKerb * rattle(now)  // 3 kerb hits
-        tt < 2700 -> 0f
-        tt < 3700 -> prefs.hSlip * (0.45f + 0.55f * ((tt - 2700) / 1000f))              // wheelspin building
-        tt < 4000 -> 0f
-        tt < 4250 -> prefs.hOff * (0.6f + 0.4f * rattle(now))                           // off-track
-        tt < 4600 -> 0f
-        tt < 4750 -> prefs.hImpact                                                      // impact
-        tt < 5050 -> 0f
-        tt < 5090 -> prefs.hShift                                                       // shift tick
-        tt < 5400 -> 0f
-        tt < 6400 -> if ((now % 160) < 72) prefs.hUnder * 0.8f else 0f                   // understeer
-        tt < 6700 -> 0f
-        tt < 7500 -> prefs.hOver * (if ((now / 15) % 2 == 0L) 1f else 0.5f)              // oversteer
-        else -> 0f
     }
 
     // ------------------------------------------------------------------ motor

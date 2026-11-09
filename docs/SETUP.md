@@ -124,7 +124,7 @@ Tip: turn off mobile data on the phone while tethering if you want to be sure it
    - **Steering, throttle, brake:** in the game's controls menu, click the control you want to assign. Then on the phone tap **SETUP → Bind controls → Steering / Throttle / Brake**. The app slowly moves only that axis for 4 seconds, so the game can't grab the wrong one.
    - **Buttons:** click the action in the game, then tap the wheel button on the phone.
    - Turn on **LOCK** (top bar) while binding buttons, so small wobbles of the phone don't get picked up as steering.
-4. Open **SETUP → Vibration → Test all effects** once to learn what each effect feels like.
+4. Open **SETUP → Vibration → Test effects**: play them all, or tap one at a time to learn what each feels like.
 5. Drive one clean lap. That lap becomes your reference for the driving coach.
 
 ## 6. Recommended starting settings
