@@ -86,7 +86,7 @@ PhoneWheel.exe reads live data from the game and sends it to the phone. The dash
 - **RaceRoom:** works automatically.
 - **Le Mans Ultimate:** needs the free **rF2 Shared Memory Map** plugin. SimHub and CrewChief install it for you. To install it by hand:
   1. Download `rFactor2SharedMemoryMapPlugin64.dll` from https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin/releases
-  2. Copy it into `Le Mans Ultimate\Plugins\`
+  2. Copy it into LMU's plugin folder: `Le Mans Ultimate\Plugins\`. On some versions it's `Le Mans Ultimate\Bin64\Plugins\`; use whichever exists.
   3. Start LMU once and close it. Then open `Le Mans Ultimate\UserData\player\CustomPluginVariables.json` and make sure the plugin's `" Enabled"` value is `1`.
 
 | Effect | What you feel | ACC | RaceRoom | LMU |
