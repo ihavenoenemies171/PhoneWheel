@@ -18,11 +18,13 @@ import sys
 import time
 
 # ----------------------------------------------------------------------------- offsets
-ACC_PHY = dict(packetId=0, gas=4, brake=8, fuel=12, gear=16, rpms=20, speedKmh=28, accG=44, wheelSlip=56,
+ACC_PHY = dict(steerAngle=24, localAngularVel=296, localVelocity=568, slipAngle=656,
+               packetId=0, gas=4, brake=8, fuel=12, gear=16, rpms=20, speedKmh=28, accG=44, wheelSlip=56,
                tc=204, numberOfTyresOut=244, pitLimiterOn=248, abs=252, finalFF=308, brakeBias=564, currentMaxRpm=588,
                tcinAction=672, absInAction=676, kerbVibration=784, slipVibrations=788, gVibrations=792,
                absVibrations=796, SIZE=800)
-ACC_GFX = dict(packetId=0, status=4, completedLaps=132, iCurrentTime=140, iLastTime=144, iBestTime=148,
+ACC_GFX = dict(activeCars=252, carCoordinates=256, carID=976, playerCarID=1216,
+               packetId=0, status=4, completedLaps=132, iCurrentTime=140, iLastTime=144, iBestTime=148,
                isInPit=160, currentSectorIndex=164, normalizedCarPosition=248, isInPitLane=1236,
                isValidLap=1408, TC=1268, TCCut=1272, EngineMap=1276, ABS=1280, fuelXLap=1284,
                iDeltaLapTime=1360, isDeltaPositive=1400, fuelEstimatedLaps=1412, SIZE=1416)
@@ -35,16 +37,19 @@ R3E = dict(version_major=0, version_minor=4, game_paused=20, game_in_menus=24, g
            tire_speed=1648, traction_control_setting=1936, engine_map_setting=1940, tire_on_mtrl=1952,
            track_name=600, layout_name=664, layout_length=736, in_pitlane=848, completed_laps=1028,
            current_lap_valid=1032, lap_distance=1040, lap_time_current_self=1100,
+           player_position=56, player_local_velocity=104, player_local_acceleration=152,
+           player_local_angular_velocity=272, steer_input_raw=1524, steer_lock_degrees=1528,
+           steer_wheel_range_degrees=1532,
            SIZE=44024)
 R3E_RUMBLE, R3E_GRASS, R3E_DIRT, R3E_GRAVEL = 5, 2, 3, 4
 
 RF2_TEL = dict(mNumVehicles=4, mVehicles=8, VEH_SIZE=1888, SIZE=241672)
-RF2_VEH = dict(mID=0, mLapNumber=20, mLapStartET=24, mVehicleName=32, mTrackName=96, mUnfilteredThrottle=388,
+RF2_VEH = dict(mPos=160, mLocalRot=304, mUnfilteredSteering=404, mPhysicalSteeringWheelRange=692, mID=0, mLapNumber=20, mLapStartET=24, mVehicleName=32, mTrackName=96, mUnfilteredThrottle=388,
                mElapsedTime=12, mLocalVel=184, mLocalAccel=208, mGear=352, mEngineRPM=356,
                mUnfilteredBrake=396, mFuel=524, mEngineMaxRPM=532, mLastImpactET=552,
                mLastImpactMagnitude=560, mSpeedLimiter=604, mFuelCapacity=608, mRearBrakeBias=664,
                mWheels=848, WHEEL_SIZE=260)
-RF2_WHEEL = dict(mBrakePressure=32, mRotation=40, mLongitudinalPatchVel=56, mLongitudinalGroundVel=72,
+RF2_WHEEL = dict(mLateralPatchVel=48, mLateralGroundVel=64, mBrakePressure=32, mRotation=40, mLongitudinalPatchVel=56, mLongitudinalGroundVel=72,
                  mSurfaceType=176)
 RF2_SCO = dict(mScoringInfo=4, info_mTrackName=4 + 0, info_mLapDist=4 + 88, info_mNumVehicles=4 + 100, info_mGamePhase=4 + 104, mVehicles=544,
                VEH_SIZE=584, veh_mID=0, veh_mTotalLaps=100, veh_mLapDist=104, veh_mLastLapTime=168,
@@ -145,7 +150,7 @@ class Frame:
                  "bb", "fuel", "fuel_laps", "pit_limiter", "abs_active", "tc_active", "delta_ms",
                  "v_abs", "v_kerb", "v_slip", "v_road", "v_off", "impact", "ffb",
                  "lap", "lap_time", "lap_dist", "track_len", "throttle", "brake", "in_pit", "valid",
-                 "track", "car", "last_lap")
+                 "track", "car", "last_lap", "v_under", "v_over", "steer_lock", "pos_x", "pos_z")
 
     def __init__(self, game):
         self.game = game
@@ -183,10 +188,50 @@ class Frame:
         self.track = ""
         self.car = ""
         self.last_lap = -1.0     # last completed lap time from the game, seconds (if known)
+        self.v_under = 0.0       # front tyres sliding more than the rears (understeer) 0..1
+        self.v_over = 0.0        # rears sliding more than the fronts (oversteer) 0..1
+        self.steer_lock = 0      # car's steering wheel range, degrees lock-to-lock (0 = unknown)
+        self.pos_x = None        # world position (metres) for the track map
+        self.pos_z = None
 
 
 def clamp01(v):
     return 0.0 if v < 0 else 1.0 if v > 1 else v
+
+
+# ----------------------------------------------------------------------------- handling (under/oversteer)
+def balance_from_slip(front_deg, rear_deg):
+    """Understeer / oversteer 0..1 from average front / rear tyre slip angles (degrees).
+    GT-type tyres peak around 5-7 deg; beyond that, and clearly more than the other axle, the car is sliding."""
+    fa, ra = abs(front_deg), abs(rear_deg)
+    under = clamp01((fa - ra - 1.5) / 3.0) * clamp01((fa - 5.0) / 3.0)
+    over = clamp01((ra - fa - 1.0) / 3.0) * clamp01((ra - 4.0) / 3.0)
+    return under, over
+
+
+class YawBalance:
+    """Under/oversteer without tyre data (RaceRoom): compares how much the car rotates with how much
+    you steer. Learns the car's normal response while driving gently, then flags a response that's
+    clearly too small (understeer) or a car that's sliding sideways (oversteer)."""
+
+    def __init__(self):
+        self.base = None
+
+    def update(self, steer, speed_ms, yaw_rate, lat_g, beta_deg):
+        under = over = 0.0
+        if speed_ms < 12 or abs(steer) < 0.03:
+            return under, over
+        k = yaw_rate / (steer * speed_ms)
+        if lat_g < 0.5 and abs(steer) > 0.05 and k > 0:
+            self.base = k if self.base is None else self.base + (k - self.base) * 0.02
+        if self.base:
+            ratio = k / self.base
+            countersteer = (steer > 0) != (yaw_rate > 0) and abs(yaw_rate) > 0.15
+            if lat_g > 0.6 and 0.0 <= ratio < 0.75 and not countersteer:
+                under = clamp01((0.75 - ratio) / 0.35)
+            if abs(beta_deg) > 3.0 and (countersteer or ratio > 1.3):
+                over = clamp01((abs(beta_deg) - 3.0) / 5.0)
+        return under, over
 
 
 # ----------------------------------------------------------------------------- ACC
@@ -262,6 +307,26 @@ class AccReader:
             length = 0.0
         f.track_len = length if length > 100 else 5000.0
         f.lap_dist = pos * f.track_len if 0.0 <= pos <= 1.0 else -1.0
+        # under/oversteer from tyre slip angles (ACC reports degrees; detect radians just in case)
+        sa = p.f32s(ACC_PHY["slipAngle"], 4)
+        m = max(abs(x) for x in sa)
+        if f.speed > 60 and abs(p.f32s(ACC_PHY["accG"], 3)[0]) > 1.0:
+            self._sa_peak = max(getattr(self, "_sa_peak", 0.0), m)
+            self._sa_n = getattr(self, "_sa_n", 0) + 1
+        scale = 57.2958 if getattr(self, "_sa_n", 0) > 200 and getattr(self, "_sa_peak", 9) < 0.6 else 1.0
+        f.v_under, f.v_over = balance_from_slip((abs(sa[0]) + abs(sa[1])) / 2 * scale, (abs(sa[2]) + abs(sa[3])) / 2 * scale)
+        # world position for the track map
+        try:
+            pid = g.i32(ACC_GFX["playerCarID"])
+            n = max(0, min(g.i32(ACC_GFX["activeCars"]), 60))
+            ids = g.i32s(ACC_GFX["carID"], 60)
+            for i in range(n):
+                if ids[i] == pid:
+                    x, _, z = g.f32s(ACC_GFX["carCoordinates"] + i * 12, 3)
+                    f.pos_x, f.pos_z = x, z
+                    break
+        except struct.error:
+            pass
         gx, gy, gz = p.f32s(ACC_PHY["accG"], 3)
         gmag = math.sqrt(gx * gx + gy * gy + gz * gz)
         if self._last_g is not None and f.live:
@@ -284,6 +349,7 @@ class R3eReader:
     def __init__(self, opener=open_map):
         self.m = opener("$R3E", R3E["SIZE"])
         self._last_acc = None
+        self._yaw = YawBalance()
         if self.m.i32(R3E["version_major"]) not in (0, 3):
             self.close()
             raise OSError("unsupported RaceRoom shared memory version")
@@ -349,6 +415,16 @@ class R3eReader:
         rough = sum(1 for x in mtrl if x in (R3E_GRASS, R3E_DIRT, R3E_GRAVEL))
         if rough:
             f.v_off = clamp01(0.25 * rough * (0.3 + 0.7 * speed_k))
+        # under/oversteer from the car's rotation vs your steering
+        vx, vy, vz = m.f64s(R3E["player_local_velocity"], 3)
+        wx, wy, wz = m.f64s(R3E["player_local_angular_velocity"], 3)
+        lax, lay, laz = m.f64s(R3E["player_local_acceleration"], 3)
+        beta = math.degrees(math.atan2(abs(vx), max(abs(vz), 1e-3))) if car_ms > 5 else 0.0
+        f.v_under, f.v_over = self._yaw.update(m.f32(R3E["steer_input_raw"]), car_ms, wy, abs(lax) / 9.81, beta)
+        rng = m.i32(R3E["steer_wheel_range_degrees"])
+        f.steer_lock = rng if 90 <= rng <= 1800 else 0
+        px, py, pz = m.f64s(R3E["player_position"], 3)
+        f.pos_x, f.pos_z = px, pz
         ax, ay, az = m.f32s(R3E["local_acceleration"], 3)
         amag = math.sqrt(ax * ax + ay * ay + az * az)
         if self._last_acc is not None and f.live:
@@ -436,8 +512,12 @@ class Rf2Reader:
         speed_k = clamp01(speed_ms / 40.0)
         lock = spin = 0.0
         rumble = rough = 0
+        slide = [0.0, 0.0, 0.0, 0.0]
         for w in range(4):
             wb = base + V["mWheels"] + w * V["WHEEL_SIZE"]
+            lat = t.f64(wb + RF2_WHEEL["mLateralPatchVel"])
+            lon = t.f64(wb + RF2_WHEEL["mLongitudinalGroundVel"])
+            slide[w] = math.degrees(math.atan2(abs(lat), max(abs(lon), 5.0)))
             patch = t.f64(wb + RF2_WHEEL["mLongitudinalPatchVel"])
             ground = t.f64(wb + RF2_WHEEL["mLongitudinalGroundVel"])
             ratio = abs(patch) / max(abs(ground), 3.0)
@@ -458,6 +538,11 @@ class Rf2Reader:
             f.v_kerb = clamp01((0.45 + 0.15 * rumble) * (0.4 + 0.6 * speed_k))
         if rough:
             f.v_off = clamp01(0.25 * rough * (0.3 + 0.7 * speed_k))
+        f.v_under, f.v_over = balance_from_slip((slide[0] + slide[1]) / 2, (slide[2] + slide[3]) / 2)
+        rng = t.f32(base + V["mPhysicalSteeringWheelRange"])
+        f.steer_lock = int(rng) if 90 <= rng <= 1800 else 0
+        px, py, pz = t.f64s(base + V["mPos"], 3)
+        f.pos_x, f.pos_z = px, pz
         iet = t.f64(base + V["mLastImpactET"])
         if self._last_impact_et is not None and iet > self._last_impact_et and f.live:
             f.impact = clamp01(t.f64(base + V["mLastImpactMagnitude"]) / 3000.0 + 0.3)
@@ -548,6 +633,9 @@ class Telemetry:
         f.v_slip *= move_k
         f.v_road *= move_k
         f.v_off *= move_k
+        turn_k = clamp01((f.speed - 40.0) / 20.0)     # handling cues from 40 km/h, full at 60
+        f.v_under *= turn_k
+        f.v_over *= turn_k
         f.v_kerb *= clamp01((f.speed - 3.0) / 10.0)
         self.frame = f
         return f
@@ -564,7 +652,7 @@ class Telemetry:
             "t", f.game, "1" if f.live else "0", str(int(f.gear)), str(int(f.rpm)), str(int(f.shift_rpm)),
             str(int(f.max_rpm)), str(int(round(f.speed))), i(f.tc), i(f.tc2), i(f.abs), i(f.map), fl(f.bb),
             fl(f.fuel), fl(f.fuel_laps), "1" if f.pit_limiter else "0", "1" if f.abs_active else "0",
-            "1" if f.tc_active else "0", delta,
+            "1" if f.tc_active else "0", delta, str(int(f.steer_lock or 0)),
         ])
 
     def vibe_packet(self, f):
@@ -572,7 +660,7 @@ class Telemetry:
         limiter = live and f.max_rpm > 0 and f.rpm >= f.max_rpm * 0.985 and f.gear > 0
         z = 0.0 if not live else 1.0
         return (f"v,{f.v_abs * z:.2f},{f.v_kerb * z:.2f},{f.v_slip * z:.2f},{f.v_road * z:.2f},"
-                f"{self.impact_seq},{self.impact_mag:.2f},{self.shift_seq},{1 if limiter else 0},{f.v_off * z:.2f}")
+                f"{self.impact_seq},{self.impact_mag:.2f},{self.shift_seq},{1 if limiter else 0},{f.v_off * z:.2f},{f.v_under * z:.2f},{f.v_over * z:.2f}")
 
     def close(self):
         if self.reader:

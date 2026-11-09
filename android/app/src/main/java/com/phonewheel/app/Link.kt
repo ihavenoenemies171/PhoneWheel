@@ -61,6 +61,12 @@ class Telem {
     @Volatile var vSlip = 0f
     @Volatile var vRoad = 0f
     @Volatile var vOff = 0f
+    @Volatile var vUnder = 0f      // front tyres sliding (understeer) 0..1
+    @Volatile var vOver = 0f       // rear tyres sliding (oversteer) 0..1
+    @Volatile var steerLock = 0    // car's steering wheel lock, degrees (0 = unknown)
+
+    /** Called (from the network thread) when new dashboard data or coach events arrive. */
+    @Volatile var onUpdate: (() -> Unit)? = null
     @Volatile var impactSeq = 0
     @Volatile var impactMag = 0f
     @Volatile var shiftSeq = 0
@@ -93,13 +99,17 @@ class Telem {
             absActive = p.getOrNull(16) == "1"
             tcActive = p.getOrNull(17) == "1"
             deltaMs = p.getOrNull(18)?.toIntOrNull() ?: Int.MIN_VALUE
+            steerLock = p.getOrNull(19)?.toIntOrNull() ?: 0
             dashAt = now
+            onUpdate?.invoke()
         } else if (p[0] == "v" && p.size >= 9) {
             vAbs = f(1).coerceAtLeast(0f); vKerb = f(2).coerceAtLeast(0f)
             vSlip = f(3).coerceAtLeast(0f); vRoad = f(4).coerceAtLeast(0f)
             impactSeq = i(5); impactMag = f(6).coerceAtLeast(0f)
             shiftSeq = i(7); limiter = p[8] == "1"
             vOff = if (p.size > 9) f(9).coerceAtLeast(0f) else 0f
+            vUnder = if (p.size > 10) f(10).coerceAtLeast(0f) else 0f
+            vOver = if (p.size > 11) f(11).coerceAtLeast(0f) else 0f
             vibeAt = now
         }
     }
@@ -120,6 +130,7 @@ data class LinkStatus(
 class Link(
     private val st: InputState,
     private val tel: Telem,
+    private val diag: Diag,
     private val onStatus: (LinkStatus) -> Unit,
 ) {
     private val lock = Object()
@@ -209,7 +220,7 @@ class Link(
                             mask = 0
                         }
                     }
-                    val msg = String.format(Locale.US, "%.4f,%.4f,%.4f,%d", steer, thr, brk, mask)
+                    val msg = fmt(steer, thr, brk, mask)
                     // send on change, plus a keepalive so the PC watchdog stays happy
                     if (msg != lastMsg || now - lastSendT >= 40) {
                         if (sendRaw("d,${seq++},$msg")) {
@@ -237,13 +248,18 @@ class Link(
                     closeTcp()
                     if (mode == Prefs.MODE_MANUAL) target = null
                 }
+                diag.tickRates(now)
+                diag.sample(now, st, tel, pingMs)
                 if (now - lastStatusT >= 250) {
                     lastStatusT = now
                     publish()
                 }
+                // wake on every input change (kick); otherwise only for the 40 ms keepalive,
+                // unless a sweep or brake release is animating
+                val busy = st.bindAxis != 0 || st.brk != st.brkIn
                 synchronized(lock) {
                     if (!kicked) {
-                        try { lock.wait(8) } catch (_: InterruptedException) {}
+                        try { lock.wait(if (busy) 8L else 40L) } catch (_: InterruptedException) {}
                     }
                     kicked = false
                 }
@@ -257,6 +273,26 @@ class Link(
             closeTcp()
             try { udp?.close() } catch (_: Exception) {}
             udp = null
+        }
+
+        private val sb = StringBuilder(48)
+
+        /** "s,t,b,mask" with 4 decimals, without String.format's allocations (runs ~200x/s). */
+        private fun fmt(s: Float, t: Float, b: Float, mask: Int): String {
+            sb.setLength(0)
+            fixed4(s); sb.append(','); fixed4(t); sb.append(','); fixed4(b); sb.append(',').append(mask)
+            return sb.toString()
+        }
+
+        private fun fixed4(v: Float) {
+            var n = Math.round(v * 10000f)
+            if (n < 0) { sb.append('-'); n = -n }
+            sb.append(n / 10000).append('.')
+            val f = n % 10000
+            if (f < 1000) sb.append('0')
+            if (f < 100) sb.append('0')
+            if (f < 10) sb.append('0')
+            sb.append(f)
         }
 
         /** Optional slow brake release: helps hold a steady trail-brake with a thumb. */
@@ -296,12 +332,14 @@ class Link(
             if (mode == Prefs.MODE_USB) {
                 val out = tcpOut ?: return false
                 out.write((s + "\n").toByteArray(Charsets.US_ASCII))
+                diag.sent++
                 return true
             }
             val t = target ?: return false
             val sock = udp ?: return false
             val b = s.toByteArray(Charsets.US_ASCII)
             sock.send(DatagramPacket(b, b.size, t))
+            diag.sent++
             return true
         }
 
@@ -382,9 +420,11 @@ class Link(
         // ---------------------------------------------------------------- replies
         private fun onLine(raw: String) {
             val line = raw.trim()
+            diag.recv++
             when {
                 line == "m" -> {
                     tel.markerSeq++
+                    tel.onUpdate?.invoke()
                 }
                 line.startsWith("c,") -> {
                     val k = line.indexOf(',', 2)
@@ -392,6 +432,7 @@ class Link(
                         tel.coachTone = line.substring(2, k)
                         tel.coachText = line.substring(k + 1)
                         tel.coachAt = SystemClock.elapsedRealtime()
+                        tel.onUpdate?.invoke()
                     }
                 }
                 line.startsWith("t,") || line.startsWith("v,") -> {
@@ -401,6 +442,7 @@ class Link(
                 line.startsWith("q,") -> {
                     val t = line.substring(2).toLongOrNull() ?: return
                     val ms = ((System.nanoTime() - t) / 1_000_000L).toInt()
+                    diag.addPing(ms)
                     synchronized(pings) {
                         pings.addLast(ms)
                         while (pings.size > 6) pings.removeFirst()

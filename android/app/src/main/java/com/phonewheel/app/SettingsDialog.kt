@@ -28,6 +28,7 @@ object SettingsDialog {
         val bind: (axis: Int) -> Unit,
         val vibrationInfo: String,
         val openReport: () -> Unit,
+        val openDiag: () -> Unit,
     )
 
     fun show(act: Activity, p: Prefs, actions: Actions, onDone: () -> Unit) {
@@ -189,6 +190,8 @@ object SettingsDialog {
         pct("Overall strength", "", p.hMaster) { p.hMaster = it }
         pct("ABS / wheel lock-up", "Fast pulses", p.hAbs) { p.hAbs = it }
         pct("Wheelspin / slide", "Smooth rumble", p.hSlip) { p.hSlip = it }
+        pct("Understeer", "Soft slow pulse when the front tyres run out of grip", p.hUnder) { p.hUnder = it }
+        pct("Oversteer", "Sharp buzz when the rear starts to slide", p.hOver) { p.hOver = it }
         pct("Kerbs", "Short rough rattle", p.hKerb) { p.hKerb = it }
         pct("Off track", "Grass / gravel", p.hOff) { p.hOff = it }
         pct("Impacts", "One hard jolt", p.hImpact) { p.hImpact = it }
@@ -220,6 +223,8 @@ object SettingsDialog {
         modeRow("Brake marker", p.fbMarker) { p.fbMarker = it }
         modeRow("ABS / lock-up", p.fbAbs) { p.fbAbs = it }
         modeRow("Wheelspin / slide", p.fbSlip) { p.fbSlip = it }
+        modeRow("Understeer (blue top edge)", p.fbUnder) { p.fbUnder = it }
+        modeRow("Oversteer (red side edges)", p.fbOver) { p.fbOver = it }
         check("Flash at shift point", "Screen edge blinks blue when it's time to shift", p.flashShift) { p.flashShift = it }
         check("Flash with coach messages", "Short green (better) / red (worse) glow", p.flashCoach) { p.flashCoach = it }
         pct("Flash brightness", "", p.flashBright) { p.flashBright = it }
@@ -247,6 +252,10 @@ object SettingsDialog {
         header("STEERING")
         slider("Steering range", "How far you rotate the phone, lock to lock", 30f, 360f, 5f, p.range,
             { "${it.roundToInt()}°" }) { p.range = it }
+        check("Match each car's steering lock", "RaceRoom and LMU report the car's steering lock; the phone " +
+              "range follows it so the same tilt always means the same wheel angle", p.matchLock) { p.matchLock = it }
+        slider("Wheel degrees per phone degree", "Used with 'match steering lock'. 6 = a 540° car needs 90° of phone rotation",
+            3f, 10f, 0.5f, p.lockRatio, { String.format(Locale.US, "%.1f", it) }) { p.lockRatio = it }
         check("Gyro-fused sensor", "Smoother, faster and ignores bumps. Turn off if steering drifts.", p.fusedSensor) { p.fusedSensor = it }
         pct("Speed-sensitive steering", "Calmer steering at high speed (needs a running game)", p.speedSens) { p.speedSens = it }
         slider("Center deadzone", "Degrees ignored around center", 0f, 5f, 0.1f, p.deadzone,
@@ -280,6 +289,23 @@ object SettingsDialog {
         // ---------------------------------------------------------- other
         header("BUTTONS")
         check("Look buttons toggle", "Tap LOOK left/right/back once to look, tap again to return. Off = hold to look", p.lookToggle) { p.lookToggle = it }
+
+        header("BATTERY")
+        hint("Your eyes are on the monitor, so the phone screen can be dim. Lower frame rate and sensor rate " +
+             "save more battery and heat on long stints.")
+        slider("Screen brightness while driving", "0 = use the phone's own setting", 0f, 100f, 5f,
+            if (p.brightness < 0f) 0f else p.brightness * 100f, { if (it < 1f) "phone" else "${it.roundToInt()}%" }) {
+            p.brightness = if (it < 1f) -1f else it / 100f
+        }
+        slider("Screen frame rate", "Lower = less battery; pedals and dashboard stay responsive", 30f, 90f, 15f, p.maxFps,
+            { "${it.roundToInt()} fps" }) { p.maxFps = it }
+        slider("Steering sensor rate", "100 Hz saves battery, 200 Hz is smoother", 100f, 200f, 100f, p.sensorHz,
+            { "${it.roundToInt()} Hz" }) { p.sensorHz = it }
+
+        header("HELP")
+        buttonRow("Diagnostics" to { dialog?.dismiss(); actions.openDiag() })
+        hint("Live connection, sensor, battery and game-data readouts, and a button that sends a debug log to the PC " +
+             "(attach it when you report a problem).")
 
         header("OTHER")
         check("Show button numbers", "vJoy button number on each key (for binding)", p.showNums) { p.showNums = it }

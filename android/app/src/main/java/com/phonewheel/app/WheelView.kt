@@ -28,6 +28,7 @@ class WheelView(
     private val prefs: Prefs,
     private val st: InputState,
     private val tel: Telem,
+    private val diag: Diag,
 ) : View(ctx) {
 
     // ------------------------------------------------------------------ callbacks
@@ -120,7 +121,21 @@ class WheelView(
     var manualSteer: Float? = null
         private set
     var status = LinkStatus(false, "Starting…")
-        set(v) { field = v; invalidate() }
+        set(v) { val changedText = field != v; field = v; if (changedText) requestFrame() }
+
+    // ------------------------------------------------------------------ frame scheduling
+    // The view only redraws when something changed or an animation is running, capped at
+    // prefs.maxFps. (Redrawing every display refresh was the app's biggest battery drain.)
+    @Volatile private var framePending = false
+    private var lastFrameT = 0L
+
+    fun requestFrame() {
+        if (framePending) return
+        framePending = true
+        val minMs = (1000f / prefs.maxFps.coerceIn(15f, 120f)).toLong()
+        val wait = minMs - (android.os.SystemClock.elapsedRealtime() - lastFrameT)
+        if (wait <= 0) postInvalidateOnAnimation() else postInvalidateDelayed(wait)
+    }
 
     // ------------------------------------------------------------------ paints
     private val dp = resources.displayMetrics.density
@@ -377,6 +392,7 @@ class WheelView(
         if (size > 0f) {
             if (sizeMin == 0f || size < sizeMin) sizeMin = size
             if (size > sizeMax) sizeMax = size
+            diag.touchMin = sizeMin; diag.touchMax = sizeMax
         }
         // only blend once the screen has shown it really reports contact size
         if (w > 0f && sizeMin > 0f && sizeMax > sizeMin * 1.15f) {
@@ -417,11 +433,14 @@ class WheelView(
 
     private fun changed() {
         onInput()
-        postInvalidateOnAnimation()
+        requestFrame()
     }
 
     // ------------------------------------------------------------------ drawing
     override fun onDraw(c: Canvas) {
+        framePending = false
+        lastFrameT = android.os.SystemClock.elapsedRealtime()
+        diag.frames++
         fill.shader = bgShader
         c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
         fill.shader = null
@@ -443,7 +462,27 @@ class WheelView(
         if (!rDash.isEmpty) drawDash(c)
         drawFlashes(c)
         if (st.bindAxis != 0) drawBindBanner(c)
-        postInvalidateOnAnimation() // live dashboard / pedals
+        scheduleAnimation()
+    }
+
+    /** Keeps redrawing only while something on screen is moving or blinking. */
+    private fun scheduleAnimation() {
+        val now = android.os.SystemClock.elapsedRealtime()
+        val dashLive = tel.dashFresh(now)
+        val shift = if (tel.shiftRpm > 0) tel.shiftRpm else tel.maxRpm
+        val animating =
+            st.bindAxis != 0 ||
+            traceActive || (traceN > 1 && prefs.brakeTrace && now - traceEndAt < 6000) ||
+            (flashMarkerAt != 0L && now - flashMarkerAt < 320) ||
+            (flashCoachAt != 0L && now - flashCoachAt < 520) ||
+            (dashLive && (tel.pitLimiter || (shift > 0 && tel.rpm >= shift))) ||
+            (tel.vibeFresh(now) && (tel.vAbs > 0.15f || tel.vSlip > 0.3f || tel.vUnder > 0.2f || tel.vOver > 0.2f)) ||
+            st.brk != st.brkIn
+        if (animating) {
+            requestFrame()
+        } else if (tel.coachAt != 0L && now - tel.coachAt < 4000) {
+            postInvalidateDelayed(4000 - (now - tel.coachAt) + 20)   // hide the coach note on time
+        }
     }
 
     // ------------------------------------------------------------------ visual feedback
@@ -477,6 +516,22 @@ class WheelView(
         // ABS / lock-up: brake strip pulses orange (only while braking, like the vibration)
         if (fresh && Prefs.flashes(prefs.fbAbs) && st.brk > 0.08f && tel.vAbs > 0.15f && (now / 60) % 2 == 0L) {
             glow(c, rBrake, orange, bright)
+        }
+        // oversteer: both side edges flash red (the rear is going)
+        if (fresh && Prefs.flashes(prefs.fbOver) && tel.vOver > 0.2f && (now / 50) % 2 == 0L) {
+            fill.color = red
+            fill.alpha = (255 * bright).toInt()
+            val t = 16 * dp
+            c.drawRect(0f, 0f, t, height.toFloat(), fill)
+            c.drawRect(width - t, 0f, width.toFloat(), height.toFloat(), fill)
+            fill.alpha = 255
+        }
+        // understeer: top edge glows blue, stronger as the front slides more
+        if (fresh && Prefs.flashes(prefs.fbUnder) && tel.vUnder > 0.2f) {
+            fill.color = blue
+            fill.alpha = (255 * bright * (0.4f + 0.6f * tel.vUnder)).toInt().coerceIn(0, 255)
+            c.drawRect(0f, 0f, width.toFloat(), 14 * dp, fill)
+            fill.alpha = 255
         }
         // wheelspin: throttle strip glows yellow
         if (fresh && Prefs.flashes(prefs.fbSlip) && st.brk <= 0.08f && tel.vSlip > 0.3f) {

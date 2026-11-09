@@ -33,6 +33,8 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var haptics: Haptics
     private val st = InputState()
     private val tel = Telem()
+    private val diag = Diag()
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private val rotMatrix = FloatArray(9)
 
     private lateinit var sensors: SensorManager
@@ -54,11 +56,12 @@ class MainActivity : Activity(), SensorEventListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         prefs = Prefs(this)
 
-        wheel = WheelView(this, prefs, st, tel)
+        wheel = WheelView(this, prefs, st, tel, diag)
         setContentView(wheel)
 
-        link = Link(st, tel) { s -> runOnUiThread { onLinkStatus(s) } }
+        link = Link(st, tel, diag) { s -> runOnUiThread { onLinkStatus(s) } }
         wheel.onInput = { link.kick() }
+        tel.onUpdate = { wheel.requestFrame() }
         wheel.onCenter = { centerSteering() }
         wheel.onSettings = { openSettings() }
         wheel.onHaptic = { ms -> buzz(ms) }
@@ -90,11 +93,19 @@ class MainActivity : Activity(), SensorEventListener {
         tiltSensor = fused
             ?: sensors.getDefaultSensor(Sensor.TYPE_GRAVITY)
             ?: sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        diag.sensorName = when (tiltSensor?.type) {
+            Sensor.TYPE_GAME_ROTATION_VECTOR -> "gyro-fused rotation"
+            Sensor.TYPE_GRAVITY -> "gravity"
+            Sensor.TYPE_ACCELEROMETER -> "accelerometer"
+            else -> "none"
+        }
     }
 
     private fun registerSensor() {
         sensors.unregisterListener(this)
-        tiltSensor?.let { sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
+        // 200 Hz by default (5 ms): plenty for steering; FASTEST (400+ Hz) mostly burned battery
+        val periodUs = (1_000_000f / prefs.sensorHz.coerceIn(50f, 400f)).toInt()
+        tiltSensor?.let { sensors.registerListener(this, it, periodUs) }
         centerDeg = null // re-center on the first reading
         lastTs = 0L
     }
@@ -102,17 +113,20 @@ class MainActivity : Activity(), SensorEventListener {
     override fun onResume() {
         super.onResume()
         hideSystemUi()
+        applyBrightness()
         registerSensor()
         try { wifiLock?.acquire() } catch (_: Exception) {}
         st.brakeReleaseMs = prefs.brakeRelease
         link.cfgLine = prefs.coachCfgLine()
         link.start(prefs.mode, prefs.manualIp)
         haptics.start()
+        handler.post(powerCheck)
     }
 
     override fun onPause() {
         super.onPause()
         sensors.unregisterListener(this)
+        handler.removeCallbacks(powerCheck)
         haptics.stop()
         wheel.releaseAll()
         st.zero()
@@ -129,6 +143,7 @@ class MainActivity : Activity(), SensorEventListener {
     // ------------------------------------------------------------------ steering
     override fun onSensorChanged(e: SensorEvent) {
         val now = SystemClock.elapsedRealtime()
+        diag.sensorEvents++
         if (now - rotationCheckedAt > 300) {
             rotationCheckedAt = now
             rotation = currentRotation()
@@ -157,6 +172,7 @@ class MainActivity : Activity(), SensorEventListener {
         val dt = if (lastTs == 0L) 0.016f else ((e.timestamp - lastTs) / 1e9f).coerceIn(0f, 0.1f)
         lastTs = e.timestamp
         rawDeg = deg
+        diag.rawSteerDeg = centerDeg?.let { wrap180(deg - it) } ?: 0f
         if (centerDeg == null) {
             centerDeg = deg
             smoothDeg = 0f
@@ -182,7 +198,10 @@ class MainActivity : Activity(), SensorEventListener {
                 // speed-sensitive: more phone rotation needed at high speed = calmer steering
                 val now = SystemClock.elapsedRealtime()
                 val speedK = if (tel.dashFresh(now)) (tel.speed / 250f).coerceIn(0f, 1f) else 0f
-                val half = prefs.range / 2f * (1f + prefs.speedSens * speedK)
+                // optional: phone range follows the car's real steering lock (constant wheel°/phone° ratio)
+                val baseRange = if (prefs.matchLock && tel.steerLock > 0)
+                    (tel.steerLock / prefs.lockRatio).coerceIn(45f, 200f) else prefs.range
+                val half = baseRange / 2f * (1f + prefs.speedSens * speedK)
                 var m = abs(smoothDeg)
                 m = if (m <= prefs.deadzone) 0f else (m - prefs.deadzone) / max(1f, half - prefs.deadzone)
                 m = m.coerceIn(0f, 1f).pow(prefs.linearity)
@@ -190,7 +209,43 @@ class MainActivity : Activity(), SensorEventListener {
             }
         }
         link.kick()
-        wheel.postInvalidateOnAnimation()
+        // only redraw when the visible steering value moved (sensor runs much faster than the screen)
+        val shown = (st.steer * 250f).toInt()
+        if (shown != lastShownSteer) {
+            lastShownSteer = shown
+            wheel.requestFrame()
+        }
+    }
+
+    private var lastShownSteer = Int.MIN_VALUE
+
+    // ---- battery / heat warnings (checked every 30 s while driving)
+    private var warnedLevel = 101
+    private var lastHeatWarn = 0L
+    private val powerCheck = object : Runnable {
+        override fun run() {
+            val pw = Power.read(this@MainActivity)
+            if (!pw.charging && pw.level in 0..15) {
+                val step = when { pw.level <= 5 -> 5; pw.level <= 10 -> 10; else -> 15 }
+                if (step < warnedLevel) {
+                    warnedLevel = step
+                    toast("Phone battery ${pw.level}% – plug in a charger (USB tethering charges while you drive)")
+                }
+            } else if (pw.charging || pw.level > 20) warnedLevel = 101
+            val now = SystemClock.elapsedRealtime()
+            if ((pw.thermal >= 2 || pw.tempC >= 43f) && now - lastHeatWarn > 5 * 60_000) {
+                lastHeatWarn = now
+                toast("Phone is getting hot (${pw.tempC.toInt()}°C). Lower screen brightness or frame rate in SETUP → Battery")
+            }
+            handler.postDelayed(this, 30_000)
+        }
+    }
+
+    private fun applyBrightness() {
+        val lp = window.attributes
+        lp.screenBrightness = if (prefs.brightness < 0f) WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+                              else prefs.brightness.coerceIn(0.05f, 1f)
+        window.attributes = lp
     }
 
     private fun centerSteering() {
@@ -223,6 +278,7 @@ class MainActivity : Activity(), SensorEventListener {
         val oldMode = prefs.mode
         val oldIp = prefs.manualIp
         val oldFused = prefs.fusedSensor
+        val oldHz = prefs.sensorHz
         SettingsDialog.show(this, prefs, SettingsDialog.Actions(
             testVibration = { haptics.test() },
             bind = { axis ->
@@ -231,6 +287,7 @@ class MainActivity : Activity(), SensorEventListener {
                 link.kick()
             },
             openReport = { openReport() },
+            openDiag = { DiagScreen.show(this, prefs, st, tel, diag, link, haptics) },
             vibrationInfo = when {
                 !haptics.supported -> "This phone has no vibration motor."
                 !haptics.amplitudeControl -> "This phone's motor can only switch on/off, so effects are simpler."
@@ -238,7 +295,8 @@ class MainActivity : Activity(), SensorEventListener {
             },
         )) {
             if (prefs.mode != oldMode || prefs.manualIp != oldIp) link.start(prefs.mode, prefs.manualIp)
-            if (prefs.fusedSensor != oldFused) { pickSensor(); registerSensor() }
+            if (prefs.fusedSensor != oldFused || prefs.sensorHz != oldHz) { pickSensor(); registerSensor() }
+            applyBrightness()
             st.brakeReleaseMs = prefs.brakeRelease
             link.cfgLine = prefs.coachCfgLine()
             wheel.relayout()

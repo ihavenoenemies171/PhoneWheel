@@ -280,6 +280,43 @@ async def ws_handler(request):
     return ws
 
 
+PC_LOG = []   # last 30 s of PC-side samples for debug logs (20 Hz)
+
+
+def pc_sample(app, frame):
+    w = app["wheel"]
+    f = frame
+    line = (f"{time.monotonic():.2f},{w.steer:+.3f},{w.thr:.3f},{w.brk:.3f},{w.btn},{w.rate},{w.client or '-'},"
+            + (f"{f.game},{int(f.live)},{f.speed:.0f},{f.rpm:.0f},{f.gear},{f.lap},{f.lap_dist:.0f},{f.throttle:.2f},"
+               f"{f.brake:.2f},{f.v_abs:.2f},{f.v_kerb:.2f},{f.v_slip:.2f},{f.v_road:.2f},{f.v_off:.2f},"
+               f"{getattr(f, 'v_under', 0):.2f},{getattr(f, 'v_over', 0):.2f}" if f is not None else "no game"))
+    PC_LOG.append(line)
+    if len(PC_LOG) > 600:
+        del PC_LOG[:len(PC_LOG) - 600]
+
+
+async def upload_log(request):
+    """The app's 'Send debug log to PC' button: saves the phone log and a PC log side by side."""
+    text = await request.text()
+    folder = os.path.join(APP_DIR, "logs")
+    os.makedirs(folder, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    with open(os.path.join(folder, f"{stamp}_phone.txt"), "w", encoding="utf-8") as fh:
+        fh.write(text[:2_000_000])
+    tel = request.app["shared"].get("telemetry")
+    wheel = request.app["wheel"]
+    with open(os.path.join(folder, f"{stamp}_pc.txt"), "w", encoding="utf-8") as fh:
+        fh.write(f"PhoneWheel PC log {stamp}\n")
+        fh.write(f"python {sys.version.split()[0]} frozen={FROZEN} vjoy={getattr(wheel.dev, 'dll_path', '?')} "
+                 f"buttons={wheel.dev.button_count} missing_axes={wheel.dev.missing_axes}\n")
+        fh.write(f"game={tel.game if tel else ''} last_error={tel.last_error if tel else ''}\n")
+        fh.write("\n[samples] t,steer,thr,brk,btn,rate,client,game,live,kmh,rpm,gear,lap,dist,thr_game,brk_game,"
+                 "abs,kerb,slip,road,off,under,over\n")
+        fh.write("\n".join(PC_LOG))
+    print(f"\n[log] debug logs saved: {os.path.join(folder, stamp)}_phone.txt / _pc.txt")
+    return web.Response(text="ok")
+
+
 async def report_page(request):
     path = report.LATEST["path"]
     if path and os.path.isfile(path):
@@ -349,6 +386,7 @@ async def telemetry_loop(app):
     app["shared"]["coach"] = coach
     last_game = ""
     next_dash = 0.0
+    sample_tick = 0
     while True:
         await asyncio.sleep(0.01)
         try:
@@ -358,6 +396,9 @@ async def telemetry_loop(app):
         if tel.game != last_game:
             print(f"\n[i] Game telemetry: {tel.game or 'no game running'}")
             last_game = tel.game
+        sample_tick = (sample_tick + 1) % 5          # 100 Hz loop -> 20 Hz log
+        if sample_tick == 0:
+            pc_sample(app, frame)
         try:
             coach.update(frame)
         except Exception as e:
@@ -471,6 +512,7 @@ def main():
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/report", report_page)
+    app.router.add_post("/log", upload_log)
     app.router.add_get("/reports", reports_list)
     app.router.add_get("/reports/{name}", report_file)
     app.router.add_static("/", WEB, show_index=False)

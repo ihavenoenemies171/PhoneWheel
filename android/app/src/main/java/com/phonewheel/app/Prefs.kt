@@ -18,6 +18,8 @@ class Prefs(ctx: Context) {
     var invert = false
     var fusedSensor = true   // gyro-fused rotation sensor instead of plain gravity
     var speedSens = 0f       // 0..1: extra steering range at high speed
+    var matchLock = false    // set the phone range from each car's steering lock (RaceRoom, LMU)
+    var lockRatio = 6f       // car wheel degrees per degree of phone rotation
 
     // pedals
     var pedalRelative = false
@@ -42,6 +44,8 @@ class Prefs(ctx: Context) {
     var hAbs = 0.9f
     var hKerb = 0.7f
     var hSlip = 0.5f
+    var hUnder = 0.55f
+    var hOver = 0.9f
     var hRoad = 0.35f
     var hImpact = 1f
     var hShift = 0.6f
@@ -62,9 +66,16 @@ class Prefs(ctx: Context) {
     var fbMarker = FB_BOTH
     var fbAbs = FB_VIBRATE
     var fbSlip = FB_VIBRATE
+    var fbUnder = FB_BOTH
+    var fbOver = FB_BOTH
     var flashShift = true     // screen edge blinks blue at the shift point
     var flashCoach = true     // short green/red glow with coach messages
     var flashBright = 0.8f
+
+    // power
+    var maxFps = 60f          // screen redraw cap
+    var sensorHz = 200f       // steering sensor rate
+    var brightness = -1f      // -1 = phone setting, else 0.05..1 while driving
 
     // misc
     var showNums = false
@@ -81,6 +92,8 @@ class Prefs(ctx: Context) {
         invert = sp.getBoolean("invert", false)
         fusedSensor = sp.getBoolean("fusedSensor", true)
         speedSens = sp.getFloat("speedSens", 0f)
+        matchLock = sp.getBoolean("matchLock", false)
+        lockRatio = sp.getFloat("lockRatio", 6f)
         pedalRelative = sp.getBoolean("pedalRelative", false)
         pedalDead = sp.getFloat("pedalDead", 5f)
         pedalSat = sp.getFloat("pedalSat", 8f)
@@ -99,6 +112,8 @@ class Prefs(ctx: Context) {
         hAbs = sp.getFloat("hAbs", 0.9f)
         hKerb = sp.getFloat("hKerb", 0.7f)
         hSlip = sp.getFloat("hSlip", 0.5f)
+        hUnder = sp.getFloat("hUnder", 0.55f)
+        hOver = sp.getFloat("hOver", 0.9f)
         hRoad = sp.getFloat("hRoad", 0.35f)
         hImpact = sp.getFloat("hImpact", 1f)
         hShift = sp.getFloat("hShift", 0.6f)
@@ -113,10 +128,15 @@ class Prefs(ctx: Context) {
         fbMarker = sp.getInt("fbMarker", FB_BOTH)
         fbAbs = sp.getInt("fbAbs", FB_VIBRATE)
         fbSlip = sp.getInt("fbSlip", FB_VIBRATE)
+        fbUnder = sp.getInt("fbUnder", FB_BOTH)
+        fbOver = sp.getInt("fbOver", FB_BOTH)
         flashShift = sp.getBoolean("flashShift", true)
         flashCoach = sp.getBoolean("flashCoach", true)
         flashBright = sp.getFloat("flashBright", 0.8f)
         showNums = sp.getBoolean("showNums", false)
+        maxFps = sp.getFloat("maxFps", 60f)
+        sensorHz = sp.getFloat("sensorHz", 200f)
+        brightness = sp.getFloat("brightness", -1f)
     }
 
     fun save() {
@@ -130,6 +150,8 @@ class Prefs(ctx: Context) {
             .putBoolean("invert", invert)
             .putBoolean("fusedSensor", fusedSensor)
             .putFloat("speedSens", speedSens)
+            .putBoolean("matchLock", matchLock)
+            .putFloat("lockRatio", lockRatio)
             .putBoolean("pedalRelative", pedalRelative)
             .putFloat("pedalDead", pedalDead)
             .putFloat("pedalSat", pedalSat)
@@ -148,6 +170,8 @@ class Prefs(ctx: Context) {
             .putFloat("hAbs", hAbs)
             .putFloat("hKerb", hKerb)
             .putFloat("hSlip", hSlip)
+            .putFloat("hUnder", hUnder)
+            .putFloat("hOver", hOver)
             .putFloat("hRoad", hRoad)
             .putFloat("hImpact", hImpact)
             .putFloat("hShift", hShift)
@@ -162,10 +186,15 @@ class Prefs(ctx: Context) {
             .putInt("fbMarker", fbMarker)
             .putInt("fbAbs", fbAbs)
             .putInt("fbSlip", fbSlip)
+            .putInt("fbUnder", fbUnder)
+            .putInt("fbOver", fbOver)
             .putBoolean("flashShift", flashShift)
             .putBoolean("flashCoach", flashCoach)
             .putFloat("flashBright", flashBright)
             .putBoolean("showNums", showNums)
+            .putFloat("maxFps", maxFps)
+            .putFloat("sensorHz", sensorHz)
+            .putFloat("brightness", brightness)
             .apply()
     }
 
