@@ -51,7 +51,11 @@ APP_DIR = _writable_dir()
 WEB = os.path.join(RES_DIR, "web")
 CERT_DIR = os.path.join(APP_DIR, "cert")
 APP_PORT = 8767
-WATCHDOG_S = 0.30  # release pedals/buttons if the phone goes quiet this long
+# If the phone goes quiet (WiFi hiccup, app closed, phone died):
+WATCHDOG_THR_S = 0.40  # ... this long: throttle, clutch and handbrake go to zero (no runaway car)
+WATCHDOG_S = 1.50      # ... this long: release everything (steering centred, buttons let go)
+# Steering, brake and buttons (e.g. a latched look-left) are HELD through short hiccups, so a WiFi
+# stall doesn't snap the wheel to centre and back.
 
 
 # ---------------------------------------------------------------- networking
@@ -121,7 +125,7 @@ def print_qr(url):
 
 # ---------------------------------------------------------------- state
 class Wheel:
-    BOX_TIMEOUT = 0.3   # a button box that goes quiet has its buttons released
+    BOX_TIMEOUT = 1.0   # a button box that goes quiet has its buttons released
 
     def __init__(self, dev):
         self.dev = dev
@@ -136,6 +140,8 @@ class Wheel:
         self.client = None
         self.rate = 0
         self._count = 0
+        self.gaps = 0           # data gaps over 0.2 s this session
+        self.gap_max = 0.0
         self.apply()
 
     @property
@@ -160,7 +166,14 @@ class Wheel:
         self.clutch = max(0.0, min(1.0, c))
         self.hbrake = max(0.0, min(1.0, h))
         self.btn = mask & 0xFFFFFFFF
-        self.last = time.monotonic()
+        now = time.monotonic()
+        gap = now - self.last if self.last else 0.0
+        if gap > 0.2:
+            self.gaps += 1
+            self.gap_max = max(self.gap_max, gap)
+            held = "held" if gap < WATCHDOG_S else "had been released"
+            print(f"\n[i] {gap * 1000:.0f} ms gap in data from the phone (WiFi hiccup) - steering and buttons {held}")
+        self.last = now
         self._count += 1
         self.apply()
 
@@ -175,6 +188,11 @@ class Wheel:
             del self.boxes[p]
         if old:
             self.apply()
+
+    def cut_power(self):
+        """Short silence: no throttle, but keep steering, brake and buttons where they were."""
+        self.thr, self.clutch, self.hbrake = 0.0, 0.0, 0.0
+        self.apply()
 
     def release(self):
         self.steer, self.thr, self.brk, self.btn, self.clutch, self.hbrake = 0.0, 0.0, 0.0, 0, 0.0, 0.0
@@ -516,10 +534,13 @@ async def watchdog(app):
     while True:
         await asyncio.sleep(0.05)
         now = time.monotonic()
-        if wheel.last and now - wheel.last > WATCHDOG_S and (wheel.thr or wheel.brk or wheel.btn or wheel.steer
-                                                              or wheel.clutch or wheel.hbrake):
+        quiet = now - wheel.last if wheel.last else 0.0
+        if wheel.last and quiet > WATCHDOG_S and (wheel.thr or wheel.brk or wheel.btn or wheel.steer
+                                                  or wheel.clutch or wheel.hbrake):
             wheel.release()
-            print("\n[!] No data from phone - inputs released")
+            print("\n[!] No data from phone for 1.5 s - all inputs released")
+        elif wheel.last and quiet > WATCHDOG_THR_S and (wheel.thr or wheel.clutch or wheel.hbrake):
+            wheel.cut_power()
         wheel.expire_boxes()
         if wheel.client and wheel.client.endswith("(wifi)") and now - wheel.last > 2.0:
             print(f"\n[-] {wheel.client} went quiet")

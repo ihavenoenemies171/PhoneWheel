@@ -184,6 +184,7 @@ class Link(
         @Volatile private var target: InetSocketAddress? = null
 
         @Volatile private var lastPong = 0L
+        @Volatile private var rediscovering = false
         @Volatile private var pingMs = -1
         @Volatile private var jitterMs = -1
         private val pings = ArrayDeque<Int>()
@@ -247,10 +248,14 @@ class Link(
                         sendRaw(cfgLine)
                     }
                     pcHost = if (mode == Prefs.MODE_USB) "localhost" else target?.address?.hostAddress
-                    // PC address may have changed: rediscover after a long silence
-                    if (mode == Prefs.MODE_AUTO && target != null && lastPong != 0L && now - lastPong > 5000) {
-                        target = null
-                        lastPong = 0L
+                    // no replies for a while: the PC's address may have changed. Look for it again,
+                    // but KEEP sending to the old address meanwhile, so a slow WiFi patch never
+                    // leaves a gap in the input stream (a gap makes the PC let go of the controls)
+                    if (mode == Prefs.MODE_AUTO && target != null && lastPong != 0L && now - lastPong > 5000 &&
+                        now - lastDiscT > 1000) {
+                        lastDiscT = now
+                        rediscovering = true
+                        discover()
                     }
                     lastError = ""
                 } catch (e: Exception) {
@@ -369,7 +374,8 @@ class Link(
                         val p = DatagramPacket(buf, buf.size)
                         s.receive(p)
                         val line = String(p.data, 0, p.length, Charsets.US_ASCII)
-                        if (line.startsWith("PW!") && mode == Prefs.MODE_AUTO && target == null) {
+                        if (line.startsWith("PW!") && mode == Prefs.MODE_AUTO && (target == null || rediscovering)) {
+                            rediscovering = false
                             target = InetSocketAddress(p.address, Prefs.PORT)
                             lastPong = SystemClock.elapsedRealtime()
                             kick()

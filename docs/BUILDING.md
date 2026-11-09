@@ -78,7 +78,7 @@ All messages are short ASCII text. The app uses **UDP port 8767** over WiFi (one
 |---|---|
 | `PW?` | Discovery (also broadcast on every network interface). The PC answers `PW!,<pc name>,<vJoy buttons>` |
 | `d,<seq>,<steer>,<thr>,<brk>,<mask>,<clutch>,<handbrake>` | Wheel input, sent on every change plus a keepalive every 40 ms. steer −1..1, the rest 0..1, mask = 32-bit button mask. Over UDP, out-of-order packets are dropped by `seq`. |
-| `b,<seq>,<mask>` | Button box (second device): buttons only. These are combined with the wheel's buttons and expire after 0.3 s of silence. |
+| `b,<seq>,<mask>` | Button box (second device): buttons only. These are combined with the wheel's buttons and expire after 1 s of silence. |
 | `p,<t>` | Ping. The PC echoes `q,<t>` |
 | `cfg,<markers 0/1>,<lead ms>,<messages 0/1>` | Coach settings, resent every 2 s |
 | `bye` | App closing: release everything |
@@ -92,7 +92,7 @@ All messages are short ASCII text. The app uses **UDP port 8767** over WiFi (one
 | `m` | Brake marker: play the tick / flash now |
 | `c,<good/bad/info>,<text>` | Coach note |
 
-Safety: if no input arrives for 0.3 s, the PC releases all axes and buttons.
+Safety: if no input arrives for 0.4 s, the PC sets throttle, clutch and handbrake to zero but holds steering, brake and buttons, so a short WiFi hiccup doesn't snap the wheel to centre. After 1.5 s of silence it releases everything. Gaps over 0.2 s are logged in the PC window.
 
 **Other ports:** 8765 HTTP (browser version over USB, session report `/report`, reference laps `/laps`, debug log upload `POST /log`) and 8766 HTTPS (browser version over WiFi; phones only allow motion sensors on secure pages). The app and PC talk to multiple devices at once: dashboard and vibration data go to every device seen in the last 3 s.
 

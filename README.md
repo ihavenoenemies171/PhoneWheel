@@ -49,7 +49,7 @@ PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, l
 - **WiFi:** the app finds the PC automatically, and switches the phone to Android's low-latency WiFi mode while it's open.
 - **USB tethering:** low lag, and no developer mode needed.
 - **USB via adb:** the advanced option.
-- **Safety:** if the connection drops, the PC releases throttle, brake and all buttons within 0.3 s.
+- **Safety:** if the connection drops, the throttle is cut within 0.4 s and everything is released after 1.5 s. Short WiFi hiccups don't snap the steering to centre.
 
 **Built to last a race**
 - Battery-friendly: the screen only redraws when something changes, the sensor and network rates are sensible, and dimming the screen is optional.

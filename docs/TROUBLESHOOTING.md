@@ -48,7 +48,16 @@ Only one copy can run at a time. Use the window that's already open (it may be m
 
 Update to the latest app version, which fixed sticky paddles. Lifting all your fingers off the screen always releases every button. Latched look buttons are the exception: tap them again.
 
+## Steering briefly jumps to centre and back
+
+This was the PC's safety cut-out reacting to a short WiFi stall. It used to release everything after 0.3 s without data. Since v1.0.21, a stall only cuts the throttle; steering, brake and buttons are held for up to 1.5 s. Each stall is logged in the PhoneWheel window as `[i] 420 ms gap in data from the phone`. If you see many of those:
+- use **USB tethering** (no WiFi stalls at all), or 5 GHz WiFi close to the router;
+- turn off the phone's battery saver, and "WiFi scanning" / "Nearby devices scanning" in its location settings;
+- turn off Bluetooth if you don't need it (it shares the radio with WiFi on many phones).
+
 ## Look left / right / back snaps back instantly
+
+- Update to v1.0.21 or newer: WiFi stalls used to release a held look button (see above).
 
 - In the app, look buttons are toggles by default (**SETUP → Buttons**). Check `joy.cpl`: the button should stay lit.
 - If the button stays lit but the game still snaps back, something else is resetting the camera:

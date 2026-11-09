@@ -428,7 +428,9 @@ class WheelView(
                 pointers.remove(id)?.let { release(it, id) }
                 if (action == MotionEvent.ACTION_UP) clearStale()      // last finger lifted: release everything
             }
-            MotionEvent.ACTION_CANCEL -> releaseAll()
+            // Android took the touch away (edge gesture, palm rejection): lift the fingers,
+            // but keep a latched look button - it was switched on deliberately
+            MotionEvent.ACTION_CANCEL -> releaseAll(keepLatch = true)
         }
         // safety net: forget any finger Android no longer reports
         if (action != MotionEvent.ACTION_CANCEL && pointers.isNotEmpty()) {
@@ -499,12 +501,12 @@ class WheelView(
         }
     }
 
-    fun releaseAll() {
+    fun releaseAll(keepLatch: Boolean = false) {
         pointers.clear()
         brakeOwner = -1; throttleOwner = -1; steerOwner = -1
         manualSteer = null
-        latchMask = 0
-        st.thr = 0f; st.brkIn = 0f; st.brk = 0f; st.mask = 0; st.clutch = 0f; st.hbrake = 0f
+        if (!keepLatch) latchMask = 0
+        st.thr = 0f; st.brkIn = 0f; st.brk = 0f; st.mask = latchMask; st.clutch = 0f; st.hbrake = 0f
         changed()
     }
 
