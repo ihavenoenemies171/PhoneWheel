@@ -40,6 +40,8 @@ class Haptics(
     // events
     private var lastImpactSeq = -1
     private var lastShiftSeq = -1
+    private var lastMarkerSeq = -1
+    private var markerAt = 0L
     private var impactUntil = 0L
     private var impactAmp = 0f
     private var shiftUntil = 0L
@@ -108,6 +110,15 @@ class Haptics(
     private fun tick() {
         val now = SystemClock.elapsedRealtime()
         var amp = if (now < pulseUntil) pulseAmp else 0f
+
+        // brake marker: two crisp ticks ("tick-tick, brake!"), above every other effect
+        if (lastMarkerSeq >= 0 && tel.markerSeq != lastMarkerSeq) markerAt = now
+        lastMarkerSeq = tel.markerSeq
+        val mt = now - markerAt
+        if (markerAt != 0L && prefs.hapticsOn && (mt in 0..30 || mt in 100..130)) {
+            drive(prefs.hMarker.coerceIn(0f, 1f), now)
+            return
+        }
 
         // event edges (always tracked so nothing fires late after switching presets)
         val fresh = tel.vibeFresh(now)

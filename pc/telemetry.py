@@ -22,27 +22,33 @@ ACC_PHY = dict(packetId=0, gas=4, brake=8, fuel=12, gear=16, rpms=20, speedKmh=2
                tc=204, numberOfTyresOut=244, pitLimiterOn=248, abs=252, finalFF=308, brakeBias=564, currentMaxRpm=588,
                tcinAction=672, absInAction=676, kerbVibration=784, slipVibrations=788, gVibrations=792,
                absVibrations=796, SIZE=800)
-ACC_GFX = dict(packetId=0, status=4, TC=1268, TCCut=1272, EngineMap=1276, ABS=1280, fuelXLap=1284,
+ACC_GFX = dict(packetId=0, status=4, completedLaps=132, iCurrentTime=140, iLastTime=144, iBestTime=148,
+               isInPit=160, currentSectorIndex=164, normalizedCarPosition=248, isInPitLane=1236,
+               isValidLap=1408, TC=1268, TCCut=1272, EngineMap=1276, ABS=1280, fuelXLap=1284,
                iDeltaLapTime=1360, isDeltaPositive=1400, fuelEstimatedLaps=1412, SIZE=1416)
-ACC_STA = dict(maxRpm=412, maxFuel=416, SIZE=420)
+ACC_STA = dict(carModel=68, track=134, maxRpm=412, maxFuel=416, trackSPlineLength=520, SIZE=592)
 
 R3E = dict(version_major=0, version_minor=4, game_paused=20, game_in_menus=24, game_in_replay=28,
            car_speed=1392, engine_rps=1396, max_engine_rps=1400, upshift_rps=1404, gear=1408,
            local_acceleration=1440, fuel_left=1456, fuel_capacity=1460, fuel_per_lap=1464, throttle=1500,
            brake=1508, aid_abs=1536, aid_tc=1540, pit_limiter=1572, brake_bias=1596, abs_setting=1616,
            tire_speed=1648, traction_control_setting=1936, engine_map_setting=1940, tire_on_mtrl=1952,
+           track_name=600, layout_name=664, layout_length=736, in_pitlane=848, completed_laps=1028,
+           current_lap_valid=1032, lap_distance=1040, lap_time_current_self=1100,
            SIZE=44024)
 R3E_RUMBLE, R3E_GRASS, R3E_DIRT, R3E_GRAVEL = 5, 2, 3, 4
 
 RF2_TEL = dict(mNumVehicles=4, mVehicles=8, VEH_SIZE=1888, SIZE=241672)
-RF2_VEH = dict(mID=0, mElapsedTime=12, mLocalVel=184, mLocalAccel=208, mGear=352, mEngineRPM=356,
+RF2_VEH = dict(mID=0, mLapNumber=20, mLapStartET=24, mVehicleName=32, mTrackName=96, mUnfilteredThrottle=388,
+               mElapsedTime=12, mLocalVel=184, mLocalAccel=208, mGear=352, mEngineRPM=356,
                mUnfilteredBrake=396, mFuel=524, mEngineMaxRPM=532, mLastImpactET=552,
                mLastImpactMagnitude=560, mSpeedLimiter=604, mFuelCapacity=608, mRearBrakeBias=664,
                mWheels=848, WHEEL_SIZE=260)
 RF2_WHEEL = dict(mBrakePressure=32, mRotation=40, mLongitudinalPatchVel=56, mLongitudinalGroundVel=72,
                  mSurfaceType=176)
-RF2_SCO = dict(mScoringInfo=4, info_mNumVehicles=4 + 100, info_mGamePhase=4 + 104, mVehicles=544,
-               VEH_SIZE=584, veh_mID=0, veh_mIsPlayer=196, veh_mControl=197, SIZE=75296)
+RF2_SCO = dict(mScoringInfo=4, info_mTrackName=4 + 0, info_mLapDist=4 + 88, info_mNumVehicles=4 + 100, info_mGamePhase=4 + 104, mVehicles=544,
+               VEH_SIZE=584, veh_mID=0, veh_mTotalLaps=100, veh_mLapDist=104, veh_mLastLapTime=168,
+               veh_mIsPlayer=196, veh_mControl=197, veh_mInPits=198, veh_mCountLapFlag=506, SIZE=75296)
 RF2_SURF_RUMBLE, RF2_SURF_GRASS, RF2_SURF_DIRT, RF2_SURF_GRAVEL = 5, 2, 3, 4
 
 
@@ -76,6 +82,18 @@ class View:
 
     def f64s(self, off, n):
         return struct.unpack_from(f"<{n}d", self.raw(off, 8 * n))
+
+    def i16(self, off):
+        return struct.unpack_from("<h", self.raw(off, 2))[0]
+
+    def wstr(self, off, n):
+        """UTF-16 (wchar_t) string of n characters."""
+        b = self.raw(off, 2 * n)
+        return b.decode("utf-16-le", "ignore").split("\x00", 1)[0].strip()
+
+    def cstr(self, off, n):
+        b = self.raw(off, n)
+        return b.split(b"\x00", 1)[0].decode("utf-8", "ignore").strip()
 
     def close(self):
         pass
@@ -125,7 +143,9 @@ class Frame:
     """One telemetry sample, game-independent."""
     __slots__ = ("game", "live", "gear", "rpm", "max_rpm", "shift_rpm", "speed", "tc", "tc2", "abs", "map",
                  "bb", "fuel", "fuel_laps", "pit_limiter", "abs_active", "tc_active", "delta_ms",
-                 "v_abs", "v_kerb", "v_slip", "v_road", "v_off", "impact", "ffb")
+                 "v_abs", "v_kerb", "v_slip", "v_road", "v_off", "impact", "ffb",
+                 "lap", "lap_time", "lap_dist", "track_len", "throttle", "brake", "in_pit", "valid",
+                 "track", "car", "last_lap")
 
     def __init__(self, game):
         self.game = game
@@ -151,6 +171,18 @@ class Frame:
         self.v_off = 0.0         # wheels off track: grass, gravel, dirt
         self.impact = 0.0        # >0 on the sample where an impact happened (strength 0..1)
         self.ffb = None          # raw steering force signal, if the game provides one
+        # lap recording (for the coach and session report)
+        self.lap = -1            # completed laps (counter; changes when a lap is finished)
+        self.lap_time = -1.0     # current lap time, seconds
+        self.lap_dist = -1.0     # metres from the start/finish line
+        self.track_len = -1.0    # metres
+        self.throttle = 0.0
+        self.brake = 0.0
+        self.in_pit = False
+        self.valid = True
+        self.track = ""
+        self.car = ""
+        self.last_lap = -1.0     # last completed lap time from the game, seconds (if known)
 
 
 def clamp01(v):
@@ -213,6 +245,23 @@ class AccReader:
         if 2 <= out <= 4:
             f.v_off = 0.3 + 0.15 * out
         f.ffb = p.f32(ACC_PHY["finalFF"])
+        f.throttle = p.f32(ACC_PHY["gas"])
+        f.brake = p.f32(ACC_PHY["brake"])
+        f.lap = g.i32(ACC_GFX["completedLaps"])
+        f.lap_time = g.i32(ACC_GFX["iCurrentTime"]) / 1000.0
+        lt = g.i32(ACC_GFX["iLastTime"])
+        f.last_lap = lt / 1000.0 if 0 < lt < 3600000 else -1.0
+        f.in_pit = g.i32(ACC_GFX["isInPit"]) != 0 or g.i32(ACC_GFX["isInPitLane"]) != 0
+        f.valid = g.i32(ACC_GFX["isValidLap"]) != 0
+        pos = g.f32(ACC_GFX["normalizedCarPosition"])
+        if self.sta is not None:
+            length = self.sta.f32(ACC_STA["trackSPlineLength"])
+            f.track = self.sta.wstr(ACC_STA["track"], 33)
+            f.car = self.sta.wstr(ACC_STA["carModel"], 33)
+        else:
+            length = 0.0
+        f.track_len = length if length > 100 else 5000.0
+        f.lap_dist = pos * f.track_len if 0.0 <= pos <= 1.0 else -1.0
         gx, gy, gz = p.f32s(ACC_PHY["accG"], 3)
         gmag = math.sqrt(gx * gx + gy * gy + gz * gz)
         if self._last_g is not None and f.live:
@@ -268,6 +317,16 @@ class R3eReader:
         per = m.f32(R3E["fuel_per_lap"])
         f.fuel_laps = f.fuel / per if per > 0 and f.fuel >= 0 else -1.0
         f.pit_limiter = m.i32(R3E["pit_limiter"]) == 1
+        f.throttle = max(0.0, m.f32(R3E["throttle"]))
+        f.brake = max(0.0, m.f32(R3E["brake"]))
+        f.lap = m.i32(R3E["completed_laps"])
+        f.lap_time = m.f32(R3E["lap_time_current_self"])
+        f.lap_dist = m.f32(R3E["lap_distance"])
+        f.track_len = m.f32(R3E["layout_length"])
+        f.in_pit = m.i32(R3E["in_pitlane"]) == 1
+        f.valid = m.i32(R3E["current_lap_valid"]) != 0
+        tn, ln = m.cstr(R3E["track_name"], 64), m.cstr(R3E["layout_name"], 64)
+        f.track = f"{tn} - {ln}" if ln and ln != tn else tn
 
         # derived vibration
         ts = m.f32s(R3E["tire_speed"], 4)          # FL FR RL RR, m/s
@@ -318,18 +377,19 @@ class Rf2Reader:
         self._last_et = None
         self._same_et = 0
 
-    def _player_id(self):
+    def _player(self):
+        """Returns (vehicle id, scoring record offset) of the player's car."""
         s = self.sco
         n = s.i32(RF2_SCO["info_mNumVehicles"])
         for i in range(max(0, min(n, 128))):
             base = RF2_SCO["mVehicles"] + i * RF2_SCO["VEH_SIZE"]
             if s.u8(base + RF2_SCO["veh_mIsPlayer"]):
-                return s.i32(base + RF2_SCO["veh_mID"])
-        return None
+                return s.i32(base + RF2_SCO["veh_mID"]), base
+        return None, None
 
     def read(self):
         f = Frame(self.name)
-        pid = self._player_id()
+        pid, sbase = self._player()
         if pid is None:
             return f
         t = self.tel
@@ -359,6 +419,19 @@ class Rf2Reader:
         f.bb = (1.0 - rb) * 100.0 if 0.0 < rb < 1.0 else -1.0
         f.pit_limiter = t.u8(base + V["mSpeedLimiter"]) != 0
         brake = t.f64(base + V["mUnfilteredBrake"])
+        f.brake = max(0.0, brake)
+        f.throttle = max(0.0, t.f64(base + V["mUnfilteredThrottle"]))
+        f.lap_time = et - t.f64(base + V["mLapStartET"])
+        f.car = t.cstr(base + V["mVehicleName"], 64)
+        s = self.sco
+        f.track = s.cstr(RF2_SCO["info_mTrackName"], 64)
+        f.track_len = s.f64(RF2_SCO["info_mLapDist"])
+        f.lap = s.i16(sbase + RF2_SCO["veh_mTotalLaps"])
+        f.lap_dist = s.f64(sbase + RF2_SCO["veh_mLapDist"])
+        f.in_pit = s.u8(sbase + RF2_SCO["veh_mInPits"]) != 0
+        f.valid = s.u8(sbase + RF2_SCO["veh_mCountLapFlag"]) == 2
+        ll = s.f64(sbase + RF2_SCO["veh_mLastLapTime"])
+        f.last_lap = ll if 0 < ll < 3600 else -1.0
 
         speed_k = clamp01(speed_ms / 40.0)
         lock = spin = 0.0

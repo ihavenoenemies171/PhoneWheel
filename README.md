@@ -129,6 +129,24 @@ Each effect has its own strength slider. **Test all effects** plays each one in 
 
 The **dashboard** shows shift lights (they flash blue at the shift point, and alternate when the pit limiter is on), gear, speed, TC / TC2 / ABS / MAP / brake bias, fuel and laps left, and the lap delta in ACC. The TC and ABS boxes light up when those systems are working. A game that doesn't report a value shows "–".
 
+## Driving coach
+
+PhoneWheel.exe records every lap against track position and compares it with **your best clean lap** on the same track and car. Best laps are saved next to PhoneWheel.exe (`best_laps` folder), so the coach is ready from the first lap of your next session. Drive **one clean lap** to set the reference; it updates whenever you go faster. Laps in the pits, invalid laps and incomplete laps don't count.
+
+| Feature | What it does |
+|---|---|
+| **Live delta** | The number under the speed on the dashboard: time vs your best lap at this exact point. Green means faster, red means slower. Works in all three games. |
+| **Brake markers** | Two quick ticks in your thumb ("tick-tick, brake") just before each point where you braked on your best lap. Set the timing in SETUP → Driving coach (default 0.5 s before). |
+| **Brake coach** | After each braking zone, a short note if something changed: "T3 brake: 9 m earlier · peak 74% (best 88%) · released too quickly · locked up". |
+| **Exit coach** | After each corner exit, time gained or lost through the corner plus anything that went wrong: "T3 +0.21s: full throttle 0.4s later · 1 throttle lift · wheelspin". |
+| **Sector splits** | "Sector 1 −0.12s" when you gain or lose at least 0.05 s. |
+| **Lap summary** | "New best lap 1:47.312 (−0.204)" or "Lap 1:47.9 (+0.6)". |
+| **Session report** | A page with lap times, sectors, consistency, speed, brake and throttle traces of your best vs last lap, a time-loss graph and a corner table that lists **where you lose the most time and why**. It updates after every lap. |
+
+The coach stays quiet when you do something the same as your best lap. Messages appear on the dashboard for 4 seconds and are also printed in the PhoneWheel.exe window.
+
+**Open the session report:** on the PC, go to http://localhost:8765/report. On the phone, tap **SETUP → Open session report**. Older sessions are listed at /reports and saved in the `reports` folder next to PhoneWheel.exe.
+
 ## More settings in the app (SETUP)
 
 - **Bind controls in a game:** in the game's controls menu, click the control you want to assign. Then tap **Steering**, **Throttle** or **Brake** in SETUP. The app moves only that axis for 4 seconds, so the game can't pick up the wrong one.
@@ -191,5 +209,5 @@ PhoneWheel.exe also serves a browser version of the wheel:
 
 ## Project layout
 - `android/`: the Android app (Kotlin, no third-party libraries)
-- `pc/`: PC server (`server.py`, `vjoy.py`, `telemetry.py`) and the browser version (`web/`). You can run it with Python instead of the .exe: run `setup.bat`, then `start.bat`.
+- `pc/`: PC server (`server.py`, `vjoy.py`, `telemetry.py`, `coach.py`, `report.py`) and the browser version (`web/`). You can run it with Python instead of the .exe: run `setup.bat`, then `start.bat`.
 - `.github/workflows/build.yml`: builds `PhoneWheel.apk` and `PhoneWheel.exe` on GitHub

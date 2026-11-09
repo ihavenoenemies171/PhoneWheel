@@ -598,6 +598,52 @@ class WheelView(
         chip(1, 1, "BB", fv(tel.bb), null)
         val fuelLabel = if (tel.fuelLaps > 0f) String.format(java.util.Locale.US, "FUEL %.1f LAPS", tel.fuelLaps) else "FUEL L"
         chip(2, 1, fuelLabel, fv(tel.fuel), if (tel.fuelLaps > 0f && tel.fuelLaps < 1.5f) red else null)
+
+        // coach message: covers the chips for 4 s
+        if (prefs.coachMessages && tel.coachText.isNotEmpty() && now - tel.coachAt < 4000) {
+            tmp.set(chipsL, top, chipsR, top + bodyH)
+            fill.color = 0xF2101317.toInt()
+            c.drawRoundRect(tmp, 6 * dp, 6 * dp, fill)
+            val toneColor = when (tel.coachTone) { "good" -> green; "bad" -> orange; else -> blue }
+            fill.color = toneColor
+            c.drawRoundRect(tmp.left, tmp.top, tmp.left + 4 * dp, tmp.bottom, 2 * dp, 2 * dp, fill)
+            drawWrapped(c, tel.coachText, tmp.left + 10 * dp, tmp.top, tmp.right - 4 * dp, tmp.bottom)
+        }
+    }
+
+    /** Draws text left-aligned, wrapped to fit the box (shrinks the font if needed). */
+    private fun drawWrapped(c: Canvas, s: String, l: Float, t: Float, r: Float, b: Float) {
+        val maxW = r - l
+        var size = min(16 * dp, (b - t) / 2.6f)
+        text.textAlign = Paint.Align.LEFT
+        text.color = Color.WHITE
+        text.typeface = condensedBold
+        var lines: List<String>
+        while (true) {
+            text.textSize = size
+            lines = wrap(s, maxW)
+            if (lines.size * size * 1.2f <= (b - t) - 4 * dp || size <= 9 * dp) break
+            size -= 1 * dp
+        }
+        val total = lines.size * size * 1.2f
+        var y = t + ((b - t) - total) / 2 + size
+        for (ln in lines) {
+            c.drawText(ln, l, y, text)
+            y += size * 1.2f
+        }
+        text.textAlign = Paint.Align.CENTER
+    }
+
+    private fun wrap(s: String, maxW: Float): List<String> {
+        val out = ArrayList<String>()
+        var cur = ""
+        for (word in s.split(" ")) {
+            val trial = if (cur.isEmpty()) word else "$cur $word"
+            if (text.measureText(trial) <= maxW || cur.isEmpty()) cur = trial
+            else { out.add(cur); cur = word }
+        }
+        if (cur.isNotEmpty()) out.add(cur)
+        return out
     }
 
     private fun drawBindBanner(c: Canvas) {

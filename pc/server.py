@@ -21,6 +21,8 @@ import time
 
 from aiohttp import web, WSMsgType
 
+import coach as coach_mod
+import report
 import telemetry
 import vjoy
 
@@ -145,6 +147,7 @@ class AppLink:
         self.last_seq = {}
         self.push = None        # function that sends a line to the active app
         self.push_peer = None
+        self.on_cfg = None      # coach settings from the app
 
     def handle(self, line, peer, reply, kind):
         line = line.strip()
@@ -173,6 +176,9 @@ class AppLink:
             self.wheel.update(*vals)
         elif line.startswith("p,"):
             reply("q," + line[2:])
+        elif line.startswith("cfg,"):
+            if self.on_cfg:
+                self.on_cfg(line)
         elif line.startswith("PW?"):
             reply(f"PW!,{socket.gethostname()},{self.wheel.dev.button_count}")
         elif line == "bye":
@@ -274,6 +280,36 @@ async def ws_handler(request):
     return ws
 
 
+async def report_page(request):
+    path = report.LATEST["path"]
+    if path and os.path.isfile(path):
+        return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
+    return web.Response(text=REPORT_EMPTY, content_type="text/html")
+
+
+async def reports_list(request):
+    folder = os.path.join(APP_DIR, "reports")
+    files = sorted((f for f in os.listdir(folder) if f.endswith(".html")), reverse=True) if os.path.isdir(folder) else []
+    items = "".join(f'<li><a href="/reports/{f}">{f[:-5]}</a></li>' for f in files) or "<li>No sessions yet</li>"
+    return web.Response(text=f"<!doctype html><meta name=viewport content='width=device-width'><title>PhoneWheel sessions</title>"
+                             f"<body style='background:#0b0d10;color:#e9edf2;font:16px system-ui;padding:20px'>"
+                             f"<h1>Sessions</h1><ul>{items}</ul>", content_type="text/html")
+
+
+async def report_file(request):
+    name = os.path.basename(request.match_info["name"])
+    path = os.path.join(APP_DIR, "reports", name)
+    if not name.endswith(".html") or not os.path.isfile(path):
+        raise web.HTTPNotFound()
+    return web.FileResponse(path)
+
+
+REPORT_EMPTY = ("<!doctype html><meta name=viewport content='width=device-width'><meta http-equiv=refresh content=15>"
+                "<title>PhoneWheel report</title><body style='background:#0b0d10;color:#e9edf2;font:16px system-ui;padding:24px'>"
+                "<h1>No session yet</h1><p>Drive at least one full lap in ACC, RaceRoom or LMU. "
+                "This page refreshes by itself. <a style='color:#ffcc00' href='/reports'>Older sessions</a></p>")
+
+
 async def index(request):
     return web.FileResponse(os.path.join(WEB, "index.html"),
                             headers={"Cache-Control": "no-cache"})
@@ -309,6 +345,8 @@ async def telemetry_loop(app):
     """Reads the running game's telemetry and streams dashboard + vibration data to the app."""
     tel = telemetry.Telemetry()
     app["shared"]["telemetry"] = tel
+    coach = coach_mod.Coach(APP_DIR)
+    app["shared"]["coach"] = coach
     last_game = ""
     next_dash = 0.0
     while True:
@@ -320,10 +358,20 @@ async def telemetry_loop(app):
         if tel.game != last_game:
             print(f"\n[i] Game telemetry: {tel.game or 'no game running'}")
             last_game = tel.game
+        try:
+            coach.update(frame)
+        except Exception as e:
+            print(f"\n[coach] {e}")
+        events = coach.pop_events()
+        for ev in events:
+            if ev[0] == "c":
+                print(f"\n[coach] {ev[1]}")
         link = app["shared"].get("link")
         push = link.push if link else None
         if push is None:
             continue
+        if link.on_cfg is None:
+            link.on_cfg = coach.configure
         try:
             if frame is None:
                 now = time.monotonic()
@@ -331,6 +379,13 @@ async def telemetry_loop(app):
                     next_dash = now + 1.0
                     push("t,,0")
                 continue
+            for ev in events:
+                if ev[0] == "m":
+                    push("m")
+                elif ev[0] == "c":
+                    push(f"c,{ev[2]},{ev[1]}")
+            if coach.delta is not None:
+                frame.delta_ms = int(coach.delta * 1000)
             push(tel.vibe_packet(frame))
             now = time.monotonic()
             if now >= next_dash:
@@ -385,6 +440,9 @@ def main():
     app["shared"] = {}  # mutable state filled in after startup
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
+    app.router.add_get("/report", report_page)
+    app.router.add_get("/reports", reports_list)
+    app.router.add_get("/reports/{name}", report_file)
     app.router.add_static("/", WEB, show_index=False)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
@@ -412,6 +470,7 @@ def main():
         for ip in ips:
             print(f"            https://{ip}:{args.https_port}")
         print("            (first time: tap 'Advanced' -> 'Proceed' on the certificate warning)")
+    print(f"\n  Session report (updates every lap): http://localhost:{args.http_port}/report")
     print("\n  Ctrl+C to quit.\n")
 
     async def run():

@@ -67,6 +67,12 @@ class Telem {
     @Volatile var limiter = false
     @Volatile var vibeAt = 0L
 
+    // coach
+    @Volatile var markerSeq = 0
+    @Volatile var coachText = ""
+    @Volatile var coachTone = "info"
+    @Volatile var coachAt = 0L
+
     fun dashFresh(now: Long) = game.isNotEmpty() && now - dashAt < 1500
     fun vibeFresh(now: Long) = now - vibeAt < 300
 
@@ -139,6 +145,12 @@ class Link(
         workerThread = null
     }
 
+    /** Coach settings sent to the PC (resent every 2 s so a restarted PC gets them too). */
+    @Volatile var cfgLine = ""
+
+    /** Host name/IP of the PC, for opening the session report. */
+    @Volatile var pcHost: String? = null
+
     /** Wake the sender immediately (call whenever input changes). */
     fun kick() {
         synchronized(lock) {
@@ -171,6 +183,7 @@ class Link(
         private var lastTcpTry = 0L
         private var lastError = ""
         private var lastShapeT = 0L
+        private var lastCfgT = 0L
 
         fun run() {
             publish()
@@ -208,6 +221,11 @@ class Link(
                         lastPingT = now
                         sendRaw("p," + System.nanoTime())
                     }
+                    if (cfgLine.isNotEmpty() && now - lastCfgT >= 2000) {
+                        lastCfgT = now
+                        sendRaw(cfgLine)
+                    }
+                    pcHost = if (mode == Prefs.MODE_USB) "localhost" else target?.address?.hostAddress
                     // PC address may have changed: rediscover after a long silence
                     if (mode == Prefs.MODE_AUTO && target != null && lastPong != 0L && now - lastPong > 5000) {
                         target = null
@@ -365,6 +383,17 @@ class Link(
         private fun onLine(raw: String) {
             val line = raw.trim()
             when {
+                line == "m" -> {
+                    tel.markerSeq++
+                }
+                line.startsWith("c,") -> {
+                    val k = line.indexOf(',', 2)
+                    if (k > 0) {
+                        tel.coachTone = line.substring(2, k)
+                        tel.coachText = line.substring(k + 1)
+                        tel.coachAt = SystemClock.elapsedRealtime()
+                    }
+                }
                 line.startsWith("t,") || line.startsWith("v,") -> {
                     try { tel.parse(line) } catch (_: Exception) {}
                     lastPong = SystemClock.elapsedRealtime()

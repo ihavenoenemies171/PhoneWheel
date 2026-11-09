@@ -48,6 +48,12 @@ class Prefs(ctx: Context) {
     var hLimiter = 0.5f
     var hButtons = 0.6f
 
+    // coach
+    var coachMarkers = true  // tick in the thumb before your best lap's braking points
+    var markerLead = 500f    // ms before the braking point
+    var hMarker = 0.85f
+    var coachMessages = true
+
     // dashboard
     var showDash = true
     var ledStart = 82f       // % of shift rpm where the first LED lights
@@ -90,6 +96,10 @@ class Prefs(ctx: Context) {
         hShift = sp.getFloat("hShift", 0.6f)
         hLimiter = sp.getFloat("hLimiter", 0.5f)
         hButtons = sp.getFloat("hButtons", 0.6f)
+        coachMarkers = sp.getBoolean("coachMarkers", true)
+        markerLead = sp.getFloat("markerLead", 500f)
+        hMarker = sp.getFloat("hMarker", 0.85f)
+        coachMessages = sp.getBoolean("coachMessages", true)
         showDash = sp.getBoolean("showDash", true)
         ledStart = sp.getFloat("ledStart", 82f)
         showNums = sp.getBoolean("showNums", false)
@@ -129,11 +139,17 @@ class Prefs(ctx: Context) {
             .putFloat("hShift", hShift)
             .putFloat("hLimiter", hLimiter)
             .putFloat("hButtons", hButtons)
+            .putBoolean("coachMarkers", coachMarkers)
+            .putFloat("markerLead", markerLead)
+            .putFloat("hMarker", hMarker)
+            .putBoolean("coachMessages", coachMessages)
             .putBoolean("showDash", showDash)
             .putFloat("ledStart", ledStart)
             .putBoolean("showNums", showNums)
             .apply()
     }
+
+    fun coachCfgLine() = "cfg,${if (coachMarkers) 1 else 0},${markerLead.toInt()},${if (coachMessages) 1 else 0}"
 
     /** Restores defaults but keeps the connection settings. */
     fun resetTuning() {

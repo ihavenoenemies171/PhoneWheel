@@ -27,6 +27,7 @@ object SettingsDialog {
         val testVibration: () -> Unit,
         val bind: (axis: Int) -> Unit,
         val vibrationInfo: String,
+        val openReport: () -> Unit,
     )
 
     fun show(act: Activity, p: Prefs, actions: Actions, onDone: () -> Unit) {
@@ -197,6 +198,20 @@ object SettingsDialog {
         pct("Button clicks", "Buzz when pressing wheel buttons", p.hButtons) { p.hButtons = it }
 
         // ---------------------------------------------------------- dashboard
+        header("DRIVING COACH")
+        hint("Compares every lap with your best lap on the same track and car (saved on the PC, so it " +
+             "carries over to your next session). Drive one clean lap to set the reference.")
+        check("Brake markers", "Two quick ticks in your thumb just before each braking point of your best lap",
+            p.coachMarkers) { p.coachMarkers = it }
+        slider("Marker timing", "How early the ticks come before the braking point", 200f, 1200f, 50f, p.markerLead,
+            { String.format(Locale.US, "%.2f s", it / 1000f) }) { p.markerLead = it }
+        pct("Marker strength", "", p.hMarker) { p.hMarker = it }
+        check("Coach messages", "Short notes on the dashboard: braking point, peak, release, lock-ups, " +
+              "corner exits, sector times, new best laps", p.coachMessages) { p.coachMessages = it }
+        buttonRow("Open session report" to { actions.openReport() })
+        hint("The report (lap times, traces vs your best lap, where you lose time) also opens on the PC at " +
+             "http://localhost:8765/report")
+
         header("DASHBOARD")
         check("Show dashboard", "Shift lights, gear, speed, TC/ABS/MAP/BB, fuel, delta", p.showDash) { p.showDash = it }
         slider("Shift lights start", "First LED lights at this % of the shift point", 50f, 98f, 1f, p.ledStart,

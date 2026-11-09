@@ -105,6 +105,7 @@ class MainActivity : Activity(), SensorEventListener {
         registerSensor()
         try { wifiLock?.acquire() } catch (_: Exception) {}
         st.brakeReleaseMs = prefs.brakeRelease
+        link.cfgLine = prefs.coachCfgLine()
         link.start(prefs.mode, prefs.manualIp)
         haptics.start()
     }
@@ -229,6 +230,7 @@ class MainActivity : Activity(), SensorEventListener {
                 st.bindStartMs = SystemClock.elapsedRealtime()
                 link.kick()
             },
+            openReport = { openReport() },
             vibrationInfo = when {
                 !haptics.supported -> "This phone has no vibration motor."
                 !haptics.amplitudeControl -> "This phone's motor can only switch on/off, so effects are simpler."
@@ -238,12 +240,27 @@ class MainActivity : Activity(), SensorEventListener {
             if (prefs.mode != oldMode || prefs.manualIp != oldIp) link.start(prefs.mode, prefs.manualIp)
             if (prefs.fusedSensor != oldFused) { pickSensor(); registerSensor() }
             st.brakeReleaseMs = prefs.brakeRelease
+            link.cfgLine = prefs.coachCfgLine()
             wheel.relayout()
             hideSystemUi()
         }
     }
 
     private fun buzz(ms: Long) = haptics.pulse(ms)
+
+    private fun openReport() {
+        val host = link.pcHost
+        if (host == null) {
+            toast("Connect to the PC first")
+            return
+        }
+        try {
+            startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
+                android.net.Uri.parse("http://$host:8765/report")))
+        } catch (_: Exception) {
+            toast("Open http://$host:8765/report in a browser")
+        }
+    }
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 

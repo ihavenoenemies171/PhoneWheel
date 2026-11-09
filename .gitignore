@@ -9,3 +9,5 @@ pc/build/
 pc/dist/
 pc/*.spec
 __pycache__/
+pc/best_laps/
+pc/reports/
