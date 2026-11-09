@@ -25,6 +25,68 @@ DLL_CANDIDATES = [
 ]
 
 
+def _registry_dlls():
+    """vJoy's installer records where it put the DLL in the Windows uninstall registry."""
+    found = []
+    try:
+        import winreg
+    except ImportError:
+        return found
+    roots = [
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"),
+        (winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"),
+    ]
+    for hive, path in roots:
+        try:
+            base = winreg.OpenKey(hive, path)
+        except OSError:
+            continue
+        i = 0
+        while True:
+            try:
+                sub = winreg.EnumKey(base, i)
+            except OSError:
+                break
+            i += 1
+            try:
+                k = winreg.OpenKey(base, sub)
+            except OSError:
+                continue
+
+            def val(name):
+                try:
+                    return str(winreg.QueryValueEx(k, name)[0])
+                except OSError:
+                    return ""
+
+            if "vjoy" not in (val("DisplayName") + sub).lower():
+                continue
+            for name in ("DllX64Location", "DllX86Location"):
+                d = val(name)
+                if d:
+                    found.append(d if d.lower().endswith(".dll") else os.path.join(d, "vJoyInterface.dll"))
+            loc = val("InstallLocation")
+            if loc:
+                found += [os.path.join(loc, "x64", "vJoyInterface.dll"), os.path.join(loc, "vJoyInterface.dll")]
+    return found
+
+
+def _search_dlls():
+    """Last resort: look through the usual program folders for vJoyInterface.dll."""
+    found = []
+    tops = {os.environ.get(v, "") for v in ("ProgramFiles", "ProgramW6432", "ProgramFiles(x86)")}
+    for top in sorted(t for t in tops if t and os.path.isdir(t)):
+        for name in os.listdir(top):
+            if "joy" not in name.lower():
+                continue
+            for root, _dirs, files in os.walk(os.path.join(top, name)):
+                if "vJoyInterface.dll" in files:
+                    found.append(os.path.join(root, "vJoyInterface.dll"))
+    # prefer the 64-bit DLL
+    found.sort(key=lambda p: (("x64" not in p.lower() and "amd64" not in p.lower()), p))
+    return found
+
+
 class VJoyError(Exception):
     pass
 
@@ -35,19 +97,29 @@ class VJoyDevice:
             raise VJoyError("vJoy only runs on Windows.")
         self.id = device_id
         self.dll = None
-        for path in DLL_CANDIDATES:
-            if path and os.path.isfile(path):
-                try:
-                    self.dll = ctypes.WinDLL(path)
-                    self.dll_path = path
-                    break
-                except OSError:
-                    continue
+        tried = []
+        load_errors = []
+        for path in DLL_CANDIDATES + _registry_dlls() + _search_dlls():
+            if not path or path in tried:
+                continue
+            tried.append(path)
+            if not os.path.isfile(path):
+                continue
+            try:
+                self.dll = ctypes.WinDLL(path)
+                self.dll_path = path
+                break
+            except OSError as e:  # e.g. 32-bit DLL in a 64-bit program
+                load_errors.append(f"{path}: {e}")
         if self.dll is None:
+            if load_errors:
+                raise VJoyError("found vJoyInterface.dll but Windows could not load it:\n    "
+                                + "\n    ".join(load_errors)
+                                + "\n  Reinstall vJoy 2.2.2.0 (64-bit).")
             raise VJoyError(
-                "vJoyInterface.dll not found. Install vJoy 2.2.2.0 "
-                "(github.com/BrunnerInnovation/vJoy/releases) or copy "
-                "vJoyInterface.dll next to PhoneWheel.exe / server.py."
+                "vJoy is not installed (vJoyInterface.dll not found).\n"
+                "  Install vJoy 2.2.2.0 from github.com/BrunnerInnovation/vJoy/releases ,\n"
+                "  restart the PC, then run PhoneWheel.exe again."
             )
         d = self.dll
         d.vJoyEnabled.restype = ctypes.c_bool

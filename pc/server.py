@@ -323,14 +323,14 @@ def main():
     else:
         try:
             dev = vjoy.VJoyDevice(args.device)
-            print(f"  vJoy device {args.device} acquired ({dev.button_count} buttons)")
+            print(f"  vJoy device {args.device} acquired ({dev.button_count} buttons)  [{dev.dll_path}]")
             if dev.button_count < 32:
                 print(f"  WARNING: device has only {dev.button_count} buttons. Set it to 32 in 'Configure vJoy'.")
             if dev.missing_axes:
                 print(f"  WARNING: missing axes {dev.missing_axes}. Enable X, Y, Z in 'Configure vJoy'.")
         except vjoy.VJoyError as e:
             print(f"  vJoy problem: {e}")
-            print("  Falling back to DRY RUN (UI works, games won't see input).")
+            print("  >>> Falling back to DRY RUN: the phone connects, but GAMES WILL NOT SEE INPUT. <<<")
             dev = vjoy.DummyDevice()
 
     app = web.Application()
