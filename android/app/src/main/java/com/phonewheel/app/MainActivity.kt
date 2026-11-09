@@ -298,6 +298,7 @@ class MainActivity : Activity(), SensorEventListener {
                 link.kick()
             },
             openReport = { openReport() },
+            openLaps = { openReport("laps") },
             openDiag = { DiagScreen.show(this, prefs, st, tel, diag, link, haptics) },
             editLayout = { wheel.startEditing() },
             profileChanged = { applyProfile() },
@@ -366,7 +367,7 @@ class MainActivity : Activity(), SensorEventListener {
         }
     }
 
-    private fun openReport() {
+    private fun openReport(page: String = "report") {
         val host = link.pcHost
         if (host == null) {
             toast("Connect to the PC first")
@@ -374,9 +375,9 @@ class MainActivity : Activity(), SensorEventListener {
         }
         try {
             startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                android.net.Uri.parse("http://$host:8765/report")))
+                android.net.Uri.parse("http://$host:8765/$page")))
         } catch (_: Exception) {
-            toast("Open http://$host:8765/report in a browser")
+            toast("Open http://$host:8765/$page in a browser")
         }
     }
 

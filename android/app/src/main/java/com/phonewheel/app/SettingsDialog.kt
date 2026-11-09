@@ -28,6 +28,7 @@ object SettingsDialog {
         val bind: (axis: Int) -> Unit,
         val vibrationInfo: String,
         val openReport: () -> Unit,
+        val openLaps: () -> Unit,
         val openDiag: () -> Unit,
         val editLayout: () -> Unit,
         val profileChanged: () -> Unit,
@@ -310,7 +311,7 @@ object SettingsDialog {
         pct("Marker strength", "", p.hMarker) { p.hMarker = it }
         check("Coach messages", "Short notes on the dashboard: braking point, peak, release, lock-ups, " +
               "corner exits, sector times, new best laps", p.coachMessages) { p.coachMessages = it }
-        buttonRow("Open session report" to { actions.openReport() })
+        buttonRow("Open session report" to { actions.openReport() }, "Reference laps" to { actions.openLaps() })
         hint("The report (lap times, traces vs your best lap, where you lose time) also opens on the PC at " +
              "http://localhost:8765/report")
 

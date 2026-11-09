@@ -388,6 +388,75 @@ async def upload_log(request):
     return web.Response(text="ok")
 
 
+def _laps_dir():
+    return os.path.join(APP_DIR, "best_laps")
+
+
+async def laps_page(request, message=""):
+    """Share / load reference laps."""
+    folder = _laps_dir()
+    files = sorted(f for f in os.listdir(folder) if f.endswith(".json")) if os.path.isdir(folder) else []
+    rows = []
+    for f in files:
+        label = f[:-5].replace("__", " · ").replace("_", " ")
+        is_ref = f.endswith("__reference.json")
+        try:
+            with open(os.path.join(folder, f)) as fh:
+                lt = json.load(fh).get("lap_time")
+            m, sec = divmod(float(lt), 60)
+            t = f"{int(m)}:{sec:06.3f}"
+        except Exception:
+            t = "?"
+        action = (f"<form method=post action='/laps/remove' style='display:inline'><input type=hidden name=f value='{f}'>"
+                  f"<button>Remove reference</button></form>" if is_ref else f"<a href='/laps/file/{f}' download>Download to share</a>")
+        rows.append(f"<tr><td>{'⭐ reference: ' if is_ref else ''}{label.replace(' · reference', '')}</td><td>{t}</td><td>{action}</td></tr>")
+    body = "".join(rows) or "<tr><td colspan=3>No laps yet. Drive a clean lap first.</td></tr>"
+    msg = f"<p style='color:#2bd96b'>{message}</p>" if message else ""
+    html = f"""<!doctype html><meta name=viewport content='width=device-width,initial-scale=1'><title>PhoneWheel laps</title>
+<style>body{{background:#0b0d10;color:#e9edf2;font:15px system-ui;padding:20px;max-width:900px;margin:auto}}
+td,th{{padding:6px 10px;border-bottom:1px solid #2a2f37;text-align:left}}a,button{{color:#ffcc00}}
+button{{background:#22262d;border:1px solid #2a2f37;border-radius:6px;padding:4px 10px}}.box{{background:#14181d;border:1px solid #2a2f37;border-radius:12px;padding:14px;margin:16px 0}}</style>
+<h1>Laps</h1>{msg}
+<p>Your best lap for each game / track / car is saved here. <b>Download</b> one to share it with a friend.
+Load someone else's lap (or an old one of yours) as a <b>reference</b>: the live delta, brake markers and corner notes then
+compare you against that lap instead of your own best. Remove it to go back to your own best.</p>
+<div class=box><form method=post action='/laps/upload' enctype='multipart/form-data'>
+<b>Load a reference lap</b> (.json from PhoneWheel)<br><br><input type=file name=lap accept='.json' required> <button>Load</button></form></div>
+<table><tr><th>Game · track · car</th><th>Lap</th><th></th></tr>{body}</table>
+<p><a href='/report'>Session report</a></p>"""
+    return web.Response(text=html, content_type="text/html")
+
+
+async def laps_file(request):
+    name = os.path.basename(request.match_info["name"])
+    path = os.path.join(_laps_dir(), name)
+    if not name.endswith(".json") or not os.path.isfile(path):
+        raise web.HTTPNotFound()
+    return web.FileResponse(path, headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+
+async def laps_upload(request):
+    coach = request.app["shared"].get("coach")
+    try:
+        form = await request.post()
+        field = form.get("lap")
+        data = field.file.read().decode("utf-8") if hasattr(field, "file") else str(field)
+        msg = coach.import_lap(data) if coach else "PhoneWheel isn't ready yet"
+    except Exception as e:
+        msg = f"Couldn't load that file: {e}"
+    print(f"\n[laps] {msg}")
+    return await laps_page(request, msg)
+
+
+async def laps_remove(request):
+    coach = request.app["shared"].get("coach")
+    form = await request.post()
+    f = os.path.basename(str(form.get("f", "")))
+    if coach:
+        coach.remove_reference(f)
+    return await laps_page(request, "Reference removed: you're compared with your own best lap again.")
+
+
 async def report_page(request):
     path = report.LATEST["path"]
     if path and os.path.isfile(path):
@@ -589,6 +658,10 @@ def main():
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/report", report_page)
     app.router.add_post("/log", upload_log)
+    app.router.add_get("/laps", laps_page)
+    app.router.add_get("/laps/file/{name}", laps_file)
+    app.router.add_post("/laps/upload", laps_upload)
+    app.router.add_post("/laps/remove", laps_remove)
     app.router.add_get("/reports", reports_list)
     app.router.add_get("/reports/{name}", report_file)
     app.router.add_static("/", WEB, show_index=False)

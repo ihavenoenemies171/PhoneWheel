@@ -26,12 +26,15 @@ class Session:
         self.game, self.track, self.car, self.track_len = game, track or "Unknown track", car or "", track_len
         self.best = best                # LapData (may come from an earlier session)
         self.laps = []
+        self.imported = None
+        self.theoretical = (None, [])
         self.started = datetime.datetime.now()
         name = f"{self.started:%Y-%m-%d_%H%M}_{_slug(self.track)}.html"
         self.path = os.path.join(self.dir, name)
 
     def add_lap(self, lap):
-        self.laps.append(lap)
+        if lap is not None:
+            self.laps.append(lap)
         try:
             self.write()
         except Exception as e:  # never let the report break driving
@@ -47,7 +50,7 @@ class Session:
         for z in best.zones:
             a = max(0.0, z.start_d - 50)
             b = z.exit_d if z.exit_d else z.end_d + 150
-            losses, mins, locks, spins, starts = [], [], 0, 0, []
+            losses, mins, locks, spins, starts, trails = [], [], 0, 0, [], []
             for lap in valid:
                 if len(lap.d) < 20:
                     continue
@@ -62,11 +65,14 @@ class Session:
                     starts.append(m.start_d - z.start_d)
                     locks += 1 if m.lock else 0
                     spins += 1 if m.spin else 0
+                    if m.trail is not None:
+                        trails.append(m.trail)
             rows.append(dict(
                 z=z, loss=statistics.mean(losses) if losses else None,
                 min_avg=statistics.mean(mins) if mins else None,
                 start_avg=statistics.mean(starts) if starts else None,
-                locks=locks, spins=spins, n=len(losses)))
+                locks=locks, spins=spins, n=len(losses),
+                trail_avg=statistics.mean(trails) if trails else None))
         return rows
 
     # ------------------------------------------------------------------ html
@@ -83,6 +89,13 @@ class Session:
         top = sorted([r for r in rows if r["loss"] is not None and r["loss"] > 0.02], key=lambda r: -r["loss"])[:3]
 
         e = html.escape
+        tb_total = self.theoretical[0]
+        tb_gap = f"{tb_total - best_t:+.3f} vs best" if (tb_total and best_t) else "best of every corner combined"
+        ref_note = ""
+        if self.imported is not None:
+            src = e(str(self.imported.meta.get("source", "imported")))
+            ref_note = (f"<p class='note'>Live delta, brake markers and corner notes use an <b>imported reference lap</b> "
+                        f"({fmt_lap(self.imported.lap_time)}, {src}). Manage it at <a href='/laps'>/laps</a>.</p>")
         out = []
         out.append(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -96,7 +109,8 @@ class Session:
  <div class="tile"><span>Best this session</span><b>{fmt_lap(session_best)}</b></div>
  <div class="tile"><span>Laps (valid)</span><b>{len(laps)} ({len(valid_times)})</b></div>
  <div class="tile"><span>Consistency (std dev)</span><b>{f"{consistency:.3f}s" if consistency is not None else "–"}</b></div>
-</section>""")
+ <div class="tile"><span>Theoretical best</span><b>{fmt_lap(self.theoretical[0])}</b><em>{tb_gap}</em></div>
+</section>{ref_note}""")
 
         if top:
             out.append('<section><h2>Where you lose the most time</h2><ol class="tips">')
@@ -137,6 +151,31 @@ class Session:
                            f"<td>{tag}</td></tr>")
             out.append("</table></section>")
 
+        # track map with time-loss heat
+        if self.best is not None and self.best.has_map():
+            out.append("<section><h2>Track map: where you gain and lose time</h2>"
+                       "<p class='note'>Average of your valid laps compared with your best lap: red = losing time, "
+                       "green = gaining, grey = the same. Labels mark your best lap's braking points.</p>")
+            out.append(track_map(self.best, [l for l in laps if l.valid and l is not self.best]))
+            out.append("</section>")
+
+        # theoretical best breakdown
+        tb_total, segs = self.theoretical
+        if tb_total and segs and best_t:
+            out.append(f"<section><h2>Theoretical best {fmt_lap(tb_total)}</h2><p class='note'>Your fastest time for each "
+                       "stretch of track (split just before each braking zone), from any lap of this session. Where a "
+                       "stretch came from another lap than your best, there's time to find.</p>")
+            out.append("<table><tr><th>Stretch</th><th>Distance</th><th>Fastest</th><th>On lap</th><th>Your best lap</th><th>Gain</th></tr>")
+            names = {}
+            for z in self.best.zones:
+                names[round(max(0.0, z.start_d - 50))] = f"into T{z.idx}"
+            for a, b, t, n, rt in segs:
+                gain = rt - t
+                cls = "hot" if gain > 0.03 else ""
+                out.append(f"<tr class='{cls}'><td>{names.get(round(a), 'start')}</td><td>{a:.0f}–{b:.0f} m</td><td>{t:.3f}</td>"
+                           f"<td>{n}</td><td>{rt:.3f}</td><td>{'' if gain < 0.005 else f'−{gain:.3f}'}</td></tr>")
+            out.append("</table></section>")
+
         # traces
         if self.best is not None and last is not None and len(last.d) > 20:
             b = self.best
@@ -162,7 +201,7 @@ class Session:
         if rows:
             out.append("<section><h2>Corners</h2><table><tr><th>Corner</th><th>Best: brake at</th><th>Best: peak</th>"
                        "<th>Best: min speed</th><th>Avg time lost</th><th>Avg braking point</th><th>Avg min speed</th>"
-                       "<th>Lock-ups</th><th>Exit wheelspin</th></tr>")
+                       "<th>Trail score (best / avg)</th><th>Lock-ups</th><th>Exit wheelspin</th></tr>")
             for r in rows:
                 z = r["z"]
                 loss = r["loss"]
@@ -170,15 +209,20 @@ class Session:
                 loss_s = "" if loss is None else f"{loss:+.2f}s"
                 start_s = "" if r["start_avg"] is None else f"{r['start_avg']:+.0f} m"
                 min_s = "" if r["min_avg"] is None else f"{r['min_avg']:.0f}"
+                trail_s = (f"{z.trail if z.trail is not None else '–'} / "
+                           f"{'–' if r.get('trail_avg') is None else round(r['trail_avg'])}")
                 out.append(f"<tr class='{cls}'><td>T{z.idx}</td><td>{z.start_d:.0f} m</td><td>{z.peak*100:.0f}%</td>"
                            f"<td>{(z.min_v or 0):.0f}</td><td>{loss_s}</td><td>{start_s}</td><td>{min_s}</td>"
-                           f"<td>{r['locks']}</td><td>{r['spins']}</td></tr>")
+                           f"<td>{trail_s}</td><td>{r['locks']}</td><td>{r['spins']}</td></tr>")
             out.append("</table><p class='note'>Braking point: + means later than your best lap (good if you still make the corner). "
-                       "Time lost is measured from 50 m before braking to the end of the corner exit.</p></section>")
+                       "Time lost is measured from 50 m before braking to the end of the corner exit. Trail score (0–100) "
+                       "rates how smoothly you released the brake from its peak: points are lost for dropping it suddenly, "
+                       "re-applying it, or releasing in a stab.</p></section>")
 
         if not laps:
             out.append("<section><p>Drive a full lap to see your first analysis.</p></section>")
-        out.append("<footer>Updates after every lap · this page refreshes itself every 30 s</footer></main></body></html>")
+        out.append("<footer>Updates after every lap · this page refreshes itself every 30 s · "
+                   "<a href='/laps'>Share or load reference laps</a> · <a href='/reports'>Older sessions</a></footer></main></body></html>")
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write("".join(out))
@@ -256,6 +300,71 @@ def line_chart(title, L, series, zones, ymax=None, signed=False):
     return "".join(g)
 
 
+def track_map(best, laps):
+    """Top-down track outline from the best lap's positions, coloured by average time gained/lost."""
+    pts = [(d, x, z) for d, x, z in zip(best.d, best.x, best.z) if x is not None and z is not None]
+    if len(pts) < 20:
+        return ""
+    xs = [p[1] for p in pts]; zs = [p[2] for p in pts]
+    minx, maxx, minz, maxz = min(xs), max(xs), min(zs), max(zs)
+    w = max(maxx - minx, 1.0); h = max(maxz - minz, 1.0)
+    W2 = 1000.0; pad = 30.0
+    scale = (W2 - 2 * pad) / max(w, h * 1.6)
+    H2 = h * scale + 2 * pad
+    W2 = w * scale + 2 * pad
+    px = lambda x: pad + (x - minx) * scale
+    pz = lambda z: pad + (z - minz) * scale
+    # average loss per 20 m bin (delta growth), across laps
+    bins = {}
+    for lap in laps:
+        if len(lap.d) < 20:
+            continue
+        prev = None
+        for d0 in range(0, int(best.track_len), 20):
+            t_l, t_b = lap.time_at(d0), best.time_at(d0)
+            if t_l is None or t_b is None:
+                prev = None
+                continue
+            delta = t_l - t_b
+            if prev is not None:
+                bins.setdefault(d0, []).append(delta - prev)
+            prev = delta
+    avg = {k: sum(v) / len(v) for k, v in bins.items() if v}
+    scale_c = max(0.01, max((abs(v) for v in avg.values()), default=0.01))
+
+    def color(v):
+        k = max(-1.0, min(1.0, v / scale_c))
+        if k >= 0:   # losing: grey -> red
+            return f"rgb({int(110 + 145 * k)},{int(115 - 75 * k)},{int(125 - 85 * k)})"
+        k = -k       # gaining: grey -> green
+        return f"rgb({int(110 - 70 * k)},{int(115 + 102 * k)},{int(125 - 18 * k)})"
+
+    g = [f'<figure><svg viewBox="0 0 {W2:.0f} {H2:.0f}" role="img" style="max-height:520px">']
+    seg = []
+    cur_bin = None
+    for d, x, z in pts:
+        b = int(d // 20) * 20
+        if cur_bin is not None and b != cur_bin and len(seg) > 1:
+            g.append(f'<polyline points="{" ".join(seg)}" fill="none" stroke="{color(avg.get(cur_bin, 0.0))}" '
+                     f'stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>')
+            seg = seg[-1:]
+        cur_bin = b
+        seg.append(f"{px(x):.1f},{pz(z):.1f}")
+    if len(seg) > 1:
+        g.append(f'<polyline points="{" ".join(seg)}" fill="none" stroke="{color(avg.get(cur_bin, 0.0))}" stroke-width="7" stroke-linecap="round"/>')
+    for zn in best.zones:
+        i = min(range(len(pts)), key=lambda k: abs(pts[k][0] - zn.start_d))
+        _, x, z = pts[i]
+        g.append(f'<circle cx="{px(x):.1f}" cy="{pz(z):.1f}" r="5" fill="#ffcc00"/>'
+                 f'<text x="{px(x)+8:.1f}" y="{pz(z)-8:.1f}" class="zl" style="font-size:16px;fill:#e9edf2">T{zn.idx}</text>')
+    _, sx0, sz0 = pts[0]
+    g.append(f'<rect x="{px(sx0)-6:.1f}" y="{pz(sz0)-6:.1f}" width="12" height="12" fill="#fff"/>'
+             f'<text x="{px(sx0)+10:.1f}" y="{pz(sz0)+18:.1f}" class="ax">START</text>')
+    g.append("</svg><div class='legend'><span><i style='background:rgb(40,217,107)'></i>gaining</span>"
+             "<span><i style='background:rgb(110,115,125)'></i>same</span><span><i style='background:rgb(255,40,40)'></i>losing</span></div></figure>")
+    return "".join(g)
+
+
 def bar_chart(pts, best, valid):
     if not pts:
         return ""
@@ -295,6 +404,7 @@ h1{margin:4px 0 0;font-size:30px}.sub{color:var(--dim)}h2{font-size:18px;margin:
 .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:18px}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
 .tile span{display:block;color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.06em}.tile b{font-size:24px;font-variant-numeric:tabular-nums}
+.tile em{display:block;font-style:normal;color:var(--dim);font-size:12px}a{color:var(--accent)}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px;display:block;overflow-x:auto}
 th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{color:var(--dim);font-weight:600}
 td:first-child,th:first-child{text-align:left}tr.best td{color:#2bd96b;font-weight:700}tr.inv td{color:#5a6370}tr.hot td{background:#ff3b3014}

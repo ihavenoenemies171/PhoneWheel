@@ -33,13 +33,15 @@ class LapData:
     def __init__(self, track_len):
         self.track_len = track_len
         self.d, self.t, self.v, self.thr, self.brk, self.abs, self.slip = [], [], [], [], [], [], []
+        self.x, self.z = [], []      # world position (for the track map); None where unknown
+        self.meta = {}               # game / track / car / source, for sharing laps
         self.lap_time = None
         self.valid = True
         self.in_pit = False
         self.number = 0
         self.zones = []
 
-    def add(self, d, t, v, thr, brk, absv, slip):
+    def add(self, d, t, v, thr, brk, absv, slip, x=None, z=None):
         if self.d and d <= self.d[-1]:
             # same grid cell: keep the strongest event values
             self.abs[-1] = max(self.abs[-1], absv)
@@ -47,6 +49,10 @@ class LapData:
             return
         self.d.append(d); self.t.append(t); self.v.append(v)
         self.thr.append(thr); self.brk.append(brk); self.abs.append(absv); self.slip.append(slip)
+        self.x.append(x); self.z.append(z)
+
+    def has_map(self):
+        return len(self.x) == len(self.d) and sum(1 for v in self.x if v is not None) > 0.8 * len(self.d) > 0
 
     def complete(self):
         """True if the lap covers the whole track without big gaps."""
@@ -77,26 +83,34 @@ class LapData:
 
     def to_json(self):
         r = lambda xs, n: [round(x, n) for x in xs]
-        return dict(track_len=self.track_len, lap_time=self.lap_time, d=r(self.d, 1), t=r(self.t, 3),
-                    v=r(self.v, 1), thr=r(self.thr, 2), brk=r(self.brk, 2), abs=r(self.abs, 2), slip=r(self.slip, 2))
+        rn = lambda xs: [None if x is None else round(x, 1) for x in xs]
+        return dict(format="phonewheel-lap-1", meta=self.meta, track_len=self.track_len, lap_time=self.lap_time,
+                    d=r(self.d, 1), t=r(self.t, 3), v=r(self.v, 1), thr=r(self.thr, 2), brk=r(self.brk, 2),
+                    abs=r(self.abs, 2), slip=r(self.slip, 2), x=rn(self.x), z=rn(self.z))
 
     @classmethod
     def from_json(cls, j):
-        lap = cls(j["track_len"])
-        lap.lap_time = j["lap_time"]
+        lap = cls(float(j["track_len"]))
+        lap.lap_time = float(j["lap_time"])
         lap.d, lap.t, lap.v = j["d"], j["t"], j["v"]
         lap.thr, lap.brk, lap.abs, lap.slip = j["thr"], j["brk"], j["abs"], j["slip"]
+        lap.x, lap.z = j.get("x") or [], j.get("z") or []
+        lap.meta = j.get("meta") or {}
+        n = len(lap.d)
+        if not (n == len(lap.t) == len(lap.v) == len(lap.thr) == len(lap.brk)) or n < 20:
+            raise ValueError("not a valid PhoneWheel lap")
         lap.zones = find_zones(lap)
         return lap
 
 
 # ----------------------------------------------------------------------------- braking zones
 class Zone:
-    __slots__ = ("idx", "start_d", "start_t", "peak", "end_d", "end_t", "release_s", "lock",
+    __slots__ = ("idx", "start_d", "start_t", "peak", "end_d", "end_t", "release_s", "lock", "trail",
                  "apex_d", "min_v", "full_t", "lifts", "spin", "exit_d")
 
     def __init__(self):
         self.idx = 0
+        self.trail = None
         self.lock = False
         self.spin = False
         self.lifts = 0
@@ -138,6 +152,7 @@ def find_zones(lap):
             end = quiet if quiet is not None else min(j, n - 1)
             z.peak, z.end_d, z.end_t = peak, lap.d[end], lap.t[end]
             z.release_s = max(0.0, lap.t[end] - lap.t[peak_i])
+            z.trail = trail_score(lap.t[peak_i:end + 1], lap.brk[peak_i:end + 1], peak)
             if peak >= 0.25 and z.end_t - z.start_t >= 0.25:
                 _fill_exit(lap, z, end)
                 zones.append(z)
@@ -147,6 +162,61 @@ def find_zones(lap):
     for k, z in enumerate(zones):
         z.idx = k + 1
     return zones
+
+
+def trail_score(ts, bs, peak):
+    """0-100: how cleanly the brake was released from its peak to zero.
+    Loses points for releasing too fast (a cliff), re-applying the brake, and a very short release."""
+    if peak <= 0 or len(ts) < 2:
+        return None
+    rel = ts[-1] - ts[0]
+    # biggest drop within any 0.1 s window, as a share of the peak
+    cliff = 0.0
+    j = 0
+    for i in range(len(ts)):
+        while ts[i] - ts[j] > 0.1:
+            j += 1
+        cliff = max(cliff, (max(bs[j:i + 1]) - bs[i]) / peak)
+    rises = sum(max(0.0, b1 - b0) for b0, b1 in zip(bs, bs[1:])) / peak
+    pen = 45 * clamp((cliff - 0.35) / 0.45) + 25 * clamp(rises / 0.15) + 30 * clamp((0.45 - rel) / 0.35)
+    return int(round(max(0.0, 100 - pen)))
+
+
+def clamp(v, lo=0.0, hi=1.0):
+    return lo if v < lo else hi if v > hi else v
+
+
+def theoretical_best(ref, laps):
+    """Best time for every stretch of track across all laps (split just before each braking zone).
+    Returns (total, segments) where segments = [(start_d, end_d, best_time, lap_number, ref_time)]."""
+    if ref is None or not ref.zones or ref.track_len <= 0:
+        return None, []
+    L = ref.track_len
+    cuts = sorted({0.0} | {max(0.0, z.start_d - 50) for z in ref.zones}) + [L]
+    pool = [l for l in laps if l.valid and l.complete()]
+    if ref not in pool and ref.complete():
+        pool.append(ref)
+    segs = []
+    total = 0.0
+    for a, b in zip(cuts, cuts[1:]):
+        if b - a < 20:
+            continue
+        best_t, best_n = None, None
+        for l in pool:
+            ta, tb = l.time_at(a), l.time_at(b)
+            if b >= L - 1:
+                tb = l.lap_time if l.lap_time else tb
+            if ta is None or tb is None:
+                continue
+            dt = tb - ta
+            if dt > 0 and (best_t is None or dt < best_t):
+                best_t, best_n = dt, l.number
+        if best_t is None:
+            return None, []
+        rt = (ref.lap_time if b >= L - 1 else ref.time_at(b)) - ref.time_at(a)
+        segs.append((a, b, best_t, best_n, rt))
+        total += best_t
+    return total, segs
 
 
 def _fill_exit(lap, z, end_i):
@@ -188,7 +258,8 @@ class Coach:
         self.lead_s = 0.5
         self.messages_on = True
         self.key = None
-        self.best = None          # LapData reference
+        self.best = None          # your own best lap (LapData)
+        self.imported = None      # a reference lap loaded from a file (someone else's or an old one)
         self.cur = None           # LapData being recorded
         self.last_lap_counter = None
         self.last_d = None
@@ -211,6 +282,11 @@ class Coach:
         except (IndexError, ValueError):
             pass
 
+    @property
+    def reference(self):
+        """Lap used for delta, brake markers and corner notes: an imported reference if you loaded one."""
+        return self.imported or self.best
+
     def _say(self, text, tone="info"):
         if self.messages_on:
             self.events.append(("c", text, tone))
@@ -219,12 +295,41 @@ class Coach:
     def _ref_path(self, key):
         return os.path.join(self.data_dir, "best_laps", _safe(key[0]) + "__" + _safe(key[1]) + "__" + _safe(key[2]) + ".json")
 
-    def _load_ref(self, key):
+    def _load_ref(self, key, suffix=""):
         try:
-            with open(self._ref_path(key)) as fh:
+            path = self._ref_path(key)
+            if suffix:
+                path = path[:-5] + suffix + ".json"
+            with open(path) as fh:
                 return LapData.from_json(json.load(fh))
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError, TypeError):
             return None
+
+    # ---- sharing laps
+    def import_lap(self, data):
+        """Install a shared lap (JSON text) as the reference for its game / track / car. Returns a message."""
+        j = json.loads(data)
+        lap = LapData.from_json(j)
+        m = lap.meta
+        if not m.get("game") or not m.get("track"):
+            raise ValueError("this lap file has no game/track information")
+        key = (m.get("game"), m.get("track"), m.get("car") or "car")
+        path = self._ref_path(key)[:-5] + "__reference.json"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        lap.meta["source"] = m.get("source") or "imported"
+        with open(path, "w") as fh:
+            json.dump(lap.to_json(), fh)
+        if key == self.key:
+            self.imported = lap
+        mm, ss = divmod(lap.lap_time, 60)
+        return f"Reference lap {int(mm)}:{ss:06.3f} installed for {key[1]} / {key[2]} ({key[0]})"
+
+    def remove_reference(self, filename):
+        path = os.path.join(self.data_dir, "best_laps", os.path.basename(filename))
+        if path.endswith("__reference.json") and os.path.isfile(path):
+            os.remove(path)
+            if self.key and self._ref_path(self.key)[:-5] + "__reference.json" == path:
+                self.imported = None
 
     def _save_ref(self, lap):
         try:
@@ -242,11 +347,14 @@ class Coach:
         key = (f.game, f.track or "track", f.car or "car")
         if key != self.key:
             self.key = key
+            self._announced_tb = None
             self.best = self._load_ref(key)
+            self.imported = self._load_ref(key, "__reference")
             self.cur = None
             self.last_lap_counter = None
             from report import Session  # local import keeps report optional
             self.session = Session(self.data_dir, f.game, f.track, f.car, f.track_len, self.best)
+            self.session.imported = self.imported
         d = f.lap_dist
         L = f.track_len
 
@@ -256,6 +364,7 @@ class Coach:
         if self.last_lap_counter is None or f.lap != self.last_lap_counter:
             self.cur = LapData(L)
             self.cur.number = max(0, f.lap) + 1
+            self.cur.meta = {"game": f.game, "track": f.track, "car": f.car, "source": "own"}
             self.next_marker = 0
             self._live = None
             self._pending_exit = None
@@ -267,13 +376,13 @@ class Coach:
         if f.lap_time is None or f.lap_time < 0:
             return
         cell = math.floor(d / GRID) * GRID
-        self.cur.add(cell, f.lap_time, f.speed, f.throttle, f.brake, f.v_abs, f.v_slip)
+        self.cur.add(cell, f.lap_time, f.speed, f.throttle, f.brake, f.v_abs, f.v_slip, f.pos_x, f.pos_z)
         if f.in_pit:
             self.cur.in_pit = True
         if not f.valid:
             self.cur.valid = False
 
-        ref = self.best
+        ref = self.reference
         if ref is not None:
             rt = ref.time_at(d)
             self.delta = (f.lap_time - rt) if rt is not None else None
@@ -288,7 +397,7 @@ class Coach:
     def _markers(self, d, speed_kmh):
         if not self.markers_on or self.cur.in_pit:
             return
-        zones = self.best.zones
+        zones = self.reference.zones
         while self.next_marker < len(zones):
             z = zones[self.next_marker]
             lead = max(15.0, speed_kmh / 3.6 * self.lead_s)
@@ -320,12 +429,15 @@ class Coach:
             if b >= 0.15:
                 self._pending_exit = None  # previous corner's exit ended by this braking zone
                 self._live = lz = dict(start_d=d, start_t=f.lap_time, peak=b, peak_t=f.lap_time, lock=False,
-                                       quiet=None, start_delta=self.delta)
+                                       quiet=None, start_delta=self.delta, ts=[], bs=[])
             # pending exit evaluation from previous zone
             self._exit_step(f, d)
             return
         if b > lz["peak"]:
             lz["peak"], lz["peak_t"] = b, f.lap_time
+            lz["ts"], lz["bs"] = [], []          # release trace starts at the peak
+        lz["ts"].append(f.lap_time)
+        lz["bs"].append(b)
         if f.v_abs > 0.3:
             lz["lock"] = True
         if b < 0.03:
@@ -340,10 +452,10 @@ class Coach:
             lz["quiet"] = None
 
     def _match_ref(self, start_d):
-        if self.best is None:
+        if self.reference is None:
             return None
         best, dist = None, 1e9
-        for z in self.best.zones:
+        for z in self.reference.zones:
             dd = abs(z.start_d - start_d)
             if dd < dist:
                 best, dist = z, dd
@@ -370,6 +482,9 @@ class Coach:
             parts.append("released too quickly")
         if lz["lock"] and not ref.lock:
             parts.append("locked up")
+        score = trail_score(lz["ts"], lz["bs"], lz["peak"])
+        if score is not None and score < 60 and (ref.trail is None or score < ref.trail - 15):
+            parts.append(f"trail release {score}/100" + (f" (best {ref.trail})" if ref.trail is not None else ""))
         if not parts:
             return  # braked like your best lap: nothing to say
         tone = "bad" if (dd < -10 or lz["lock"] or pk < rpk - 12) else "good" if dd > 3 else "info"
@@ -431,7 +546,7 @@ class Coach:
         lap.valid = bool(good)
         lap.zones = find_zones(lap) if lap.complete() else []
         if self.session is not None:
-            self.session.add_lap(lap)
+            self.session.laps.append(lap)
         if good and (self.best is None or lap.lap_time < self.best.lap_time - 1e-3):
             had = self.best is not None
             old = self.best.lap_time if had else None
@@ -448,6 +563,20 @@ class Coach:
             mm, ss = divmod(lap.lap_time, 60)
             self._say(f"Lap {int(mm)}:{ss:06.3f}  ({lap.lap_time - self.best.lap_time:+.3f})"
                       + ("" if good else "  invalid"), "info" if good else "bad")
+        self._theoretical()
+        if self.session is not None:
+            self.session.add_lap(None)   # rewrite the report
+
+    def _theoretical(self):
+        if self.session is None:
+            return
+        total, segs = theoretical_best(self.best, self.session.laps)
+        self.session.theoretical = (total, segs)
+        prev = getattr(self, "_announced_tb", None)
+        if total and self.best and self.best.lap_time - total > 0.05 and (prev is None or total < prev - 0.005):
+            self._announced_tb = total
+            mm, ss = divmod(total, 60)
+            self._say(f"Theoretical best {int(mm)}:{ss:06.3f}  ({total - self.best.lap_time:+.2f} vs your best)", "info")
 
     def pop_events(self):
         ev, self.events = self.events, []
