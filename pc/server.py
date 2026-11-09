@@ -21,6 +21,7 @@ import time
 
 from aiohttp import web, WSMsgType
 
+import telemetry
 import vjoy
 
 FROZEN = getattr(sys, "frozen", False)
@@ -142,6 +143,8 @@ class AppLink:
     def __init__(self, wheel):
         self.wheel = wheel
         self.last_seq = {}
+        self.push = None        # function that sends a line to the active app
+        self.push_peer = None
 
     def handle(self, line, peer, reply, kind):
         line = line.strip()
@@ -162,6 +165,8 @@ class AppLink:
                     return
                 self.last_seq[peer] = seq
             name = f"{peer} ({kind})"
+            self.push = reply
+            self.push_peer = name
             if self.wheel.client != name:
                 self.wheel.client = name
                 print(f"\n[+] PhoneWheel app connected: {name}")
@@ -172,6 +177,8 @@ class AppLink:
             reply(f"PW!,{socket.gethostname()},{self.wheel.dev.button_count}")
         elif line == "bye":
             self.last_seq.pop(peer, None)
+            if self.push_peer and self.push_peer.startswith(str(peer)):
+                self.push = None
             self.wheel.release()
             if self.wheel.client and self.wheel.client.startswith(str(peer)):
                 self.wheel.client = None
@@ -206,7 +213,8 @@ def make_tcp_handler(link, wheel):
                 pass
 
         def reply(r):
-            writer.write((r + "\n").encode())
+            if not writer.is_closing():
+                writer.write((r + "\n").encode())
 
         try:
             while True:
@@ -288,19 +296,58 @@ async def watchdog(app):
             wheel._count = 0
             last_print = now
             pressed = [str(i + 1) for i in range(32) if wheel.btn & (1 << i)]
+            tel = app["shared"].get("telemetry")
+            game = f"  [{tel.game}]" if tel is not None and tel.game else ""
             line = (f"\r  steer {wheel.steer:+.2f}  thr {wheel.thr:4.0%}  brk {wheel.brk:4.0%}  "
                     f"btn [{' '.join(pressed) or '-'}]  {wheel.rate:3d} Hz  "
-                    f"{'connected ' + str(wheel.client) if wheel.client else 'waiting for phone...'}")
+                    f"{'connected ' + str(wheel.client) if wheel.client else 'waiting for phone...'}{game}")
             sys.stdout.write(line.ljust(110))
             sys.stdout.flush()
 
 
+async def telemetry_loop(app):
+    """Reads the running game's telemetry and streams dashboard + vibration data to the app."""
+    tel = telemetry.Telemetry()
+    app["shared"]["telemetry"] = tel
+    last_game = ""
+    next_dash = 0.0
+    while True:
+        await asyncio.sleep(0.01)
+        try:
+            frame = tel.poll()
+        except Exception:
+            frame = None
+        if tel.game != last_game:
+            print(f"\n[i] Game telemetry: {tel.game or 'no game running'}")
+            last_game = tel.game
+        link = app["shared"].get("link")
+        push = link.push if link else None
+        if push is None:
+            continue
+        try:
+            if frame is None:
+                now = time.monotonic()
+                if now >= next_dash:
+                    next_dash = now + 1.0
+                    push("t,,0")
+                continue
+            push(tel.vibe_packet(frame))
+            now = time.monotonic()
+            if now >= next_dash:
+                next_dash = now + 1 / 30
+                push(tel.dash_packet(frame))
+        except Exception:
+            pass
+
+
 async def on_startup(app):
     app["watchdog"] = asyncio.create_task(watchdog(app))
+    app["telemetry_task"] = asyncio.create_task(telemetry_loop(app))
 
 
 async def on_cleanup(app):
     app["watchdog"].cancel()
+    app["telemetry_task"].cancel()
     app["wheel"].release()
     app["wheel"].dev.close()
 
@@ -335,6 +382,7 @@ def main():
 
     app = web.Application()
     app["wheel"] = Wheel(dev)
+    app["shared"] = {}  # mutable state filled in after startup
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_static("/", WEB, show_index=False)
@@ -371,6 +419,7 @@ def main():
         if ssl_ctx:
             await web.TCPSite(runner, "0.0.0.0", args.https_port, ssl_context=ssl_ctx).start()
         link = AppLink(app["wheel"])
+        app["shared"]["link"] = link
         loop = asyncio.get_running_loop()
         await loop.create_datagram_endpoint(lambda: UdpProto(link), local_addr=("0.0.0.0", args.app_port))
         await asyncio.start_server(make_tcp_handler(link, app["wheel"]), "0.0.0.0", args.app_port)

@@ -20,11 +20,80 @@ import kotlin.concurrent.thread
 class InputState {
     @Volatile var steer = 0f
     @Volatile var thr = 0f
-    @Volatile var brk = 0f
+    @Volatile var brkIn = 0f      // brake as the thumb asks for it
+    @Volatile var brk = 0f        // brake actually sent (after release smoothing)
     @Volatile var mask = 0
+    @Volatile var brakeReleaseMs = 0f
+
+    // binding helper: sweep one axis so the game can detect it
+    @Volatile var bindAxis = 0    // 0 off, 1 steering, 2 throttle, 3 brake
+    @Volatile var bindStartMs = 0L
 
     fun zero() {
-        steer = 0f; thr = 0f; brk = 0f; mask = 0
+        steer = 0f; thr = 0f; brkIn = 0f; brk = 0f; mask = 0
+    }
+}
+
+/** Live game data streamed back from the PC (dashboard + vibration). */
+class Telem {
+    @Volatile var game = ""
+    @Volatile var live = false
+    @Volatile var gear = 0
+    @Volatile var rpm = 0
+    @Volatile var shiftRpm = 0
+    @Volatile var maxRpm = 0
+    @Volatile var speed = 0
+    @Volatile var tc = -1
+    @Volatile var tc2 = -1
+    @Volatile var abs = -1
+    @Volatile var map = -1
+    @Volatile var bb = -1f
+    @Volatile var fuel = -1f
+    @Volatile var fuelLaps = -1f
+    @Volatile var pitLimiter = false
+    @Volatile var absActive = false
+    @Volatile var tcActive = false
+    @Volatile var deltaMs = Int.MIN_VALUE
+    @Volatile var dashAt = 0L
+
+    @Volatile var vAbs = 0f
+    @Volatile var vKerb = 0f
+    @Volatile var vSlip = 0f
+    @Volatile var vRoad = 0f
+    @Volatile var impactSeq = 0
+    @Volatile var impactMag = 0f
+    @Volatile var shiftSeq = 0
+    @Volatile var limiter = false
+    @Volatile var vibeAt = 0L
+
+    fun dashFresh(now: Long) = game.isNotEmpty() && now - dashAt < 1500
+    fun vibeFresh(now: Long) = now - vibeAt < 300
+
+    fun parse(line: String) {
+        val p = line.split(",")
+        val now = SystemClock.elapsedRealtime()
+        fun i(k: Int) = p.getOrNull(k)?.toIntOrNull() ?: -1
+        fun f(k: Int) = p.getOrNull(k)?.toFloatOrNull() ?: -1f
+        if (p[0] == "t") {
+            game = p.getOrNull(1) ?: ""
+            live = p.getOrNull(2) == "1"
+            if (game.isEmpty()) { dashAt = now; return }
+            gear = p.getOrNull(3)?.toIntOrNull() ?: 0
+            rpm = i(4); shiftRpm = i(5); maxRpm = i(6); speed = i(7)
+            tc = i(8); tc2 = i(9); abs = i(10); map = i(11)
+            bb = f(12); fuel = f(13); fuelLaps = f(14)
+            pitLimiter = p.getOrNull(15) == "1"
+            absActive = p.getOrNull(16) == "1"
+            tcActive = p.getOrNull(17) == "1"
+            deltaMs = p.getOrNull(18)?.toIntOrNull() ?: Int.MIN_VALUE
+            dashAt = now
+        } else if (p[0] == "v" && p.size >= 9) {
+            vAbs = f(1).coerceAtLeast(0f); vKerb = f(2).coerceAtLeast(0f)
+            vSlip = f(3).coerceAtLeast(0f); vRoad = f(4).coerceAtLeast(0f)
+            impactSeq = i(5); impactMag = f(6).coerceAtLeast(0f)
+            shiftSeq = i(7); limiter = p[8] == "1"
+            vibeAt = now
+        }
     }
 }
 
@@ -40,7 +109,11 @@ data class LinkStatus(
  *  - WiFi: UDP datagrams (lowest latency), PC found by broadcast discovery or typed address
  *  - USB : TCP to 127.0.0.1, forwarded to the PC by `adb reverse tcp:8767 tcp:8767`
  */
-class Link(private val st: InputState, private val onStatus: (LinkStatus) -> Unit) {
+class Link(
+    private val st: InputState,
+    private val tel: Telem,
+    private val onStatus: (LinkStatus) -> Unit,
+) {
     private val lock = Object()
     private var kicked = false
     private var worker: Worker? = null
@@ -93,6 +166,7 @@ class Link(private val st: InputState, private val onStatus: (LinkStatus) -> Uni
         private var lastStatusT = 0L
         private var lastTcpTry = 0L
         private var lastError = ""
+        private var lastShapeT = 0L
 
         fun run() {
             publish()
@@ -100,10 +174,25 @@ class Link(private val st: InputState, private val onStatus: (LinkStatus) -> Uni
                 val now = SystemClock.elapsedRealtime()
                 try {
                     ensureTransport(now)
-                    val msg = String.format(
-                        Locale.US, "%.4f,%.4f,%.4f,%d",
-                        st.steer, st.thr, st.brk, st.mask
-                    )
+                    shapeBrake(now)
+                    var steer = st.steer
+                    var thr = st.thr
+                    var brk = st.brk
+                    var mask = st.mask
+                    if (st.bindAxis != 0) {
+                        // binding helper: move only one axis, slowly, everything else at rest
+                        val t = (now - st.bindStartMs) / 1000f
+                        if (t > 4f) {
+                            st.bindAxis = 0
+                        } else {
+                            val wave = 0.5f - 0.5f * kotlin.math.cos(t / 1.6f * 2f * Math.PI.toFloat())
+                            steer = if (st.bindAxis == 1) kotlin.math.sin(t / 1.6f * 2f * Math.PI.toFloat()) else 0f
+                            thr = if (st.bindAxis == 2) wave else 0f
+                            brk = if (st.bindAxis == 3) wave else 0f
+                            mask = 0
+                        }
+                    }
+                    val msg = String.format(Locale.US, "%.4f,%.4f,%.4f,%d", steer, thr, brk, mask)
                     // send on change, plus a keepalive so the PC watchdog stays happy
                     if (msg != lastMsg || now - lastSendT >= 40) {
                         if (sendRaw("d,${seq++},$msg")) {
@@ -146,6 +235,16 @@ class Link(private val st: InputState, private val onStatus: (LinkStatus) -> Uni
             closeTcp()
             try { udp?.close() } catch (_: Exception) {}
             udp = null
+        }
+
+        /** Optional slow brake release: helps hold a steady trail-brake with a thumb. */
+        private fun shapeBrake(now: Long) {
+            val dt = if (lastShapeT == 0L) 0f else (now - lastShapeT) / 1000f
+            lastShapeT = now
+            val target = st.brkIn
+            val rel = st.brakeReleaseMs / 1000f
+            st.brk = if (rel <= 0f || target >= st.brk) target
+            else maxOf(target, st.brk - dt / rel)
         }
 
         private fun ensureTransport(now: Long) {
@@ -262,6 +361,10 @@ class Link(private val st: InputState, private val onStatus: (LinkStatus) -> Uni
         private fun onLine(raw: String) {
             val line = raw.trim()
             when {
+                line.startsWith("t,") || line.startsWith("v,") -> {
+                    try { tel.parse(line) } catch (_: Exception) {}
+                    lastPong = SystemClock.elapsedRealtime()
+                }
                 line.startsWith("q,") -> {
                     val t = line.substring(2).toLongOrNull() ?: return
                     pingMs = ((System.nanoTime() - t) / 1_000_000L).toInt()

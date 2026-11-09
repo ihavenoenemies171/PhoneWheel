@@ -8,6 +8,11 @@ For **Assetto Corsa Competizione**, **RaceRoom** and **Le Mans Ultimate**.
 - **Upshift paddle on the left, downshift paddle on the right.**
 - **Wheel buttons:** two pages of GT3 controls (pit limiter, lights, wipers, TC, ABS, engine map, brake bias, ignition, starter, indicators, MFD keys, look left/right/back, and more).
 - **Connection:** WiFi (finds your PC automatically) or USB cable.
+- **Vibration "force feedback"** from live game data: ABS/lock-ups, kerbs, wheelspin, road surface, impacts, gear shifts and the rev limiter.
+- **Dashboard:** shift lights, gear, speed, TC/TC2/ABS/MAP/BB, fuel and lap delta.
+- **Brake extras:** optional pressure feel (press harder = more brake) and release smoothing for trail braking.
+- **Steering extras:** gyro-fused sensor and speed-sensitive steering.
+- **Binding helper:** sweeps one axis so the game picks the right control.
 
 On the PC, `PhoneWheel.exe` feeds a **vJoy** virtual controller. Windows and the games see an ordinary analog wheel (X = steering, Y = throttle, Z = brake, 32 buttons).
 
@@ -73,6 +78,40 @@ Open the repository's **Releases** page in Chrome on the phone and download **Ph
 
 ---
 
+## Vibration and dashboard (game telemetry)
+
+PhoneWheel.exe reads live data from the game and sends it to the phone. The dashboard shows *"Start ACC, RaceRoom or LMU to see live data"* until a game is running and you're on track. The PC window also shows `[ACC]`, `[RaceRoom]` or `[LMU]` when it detects a game.
+
+- **ACC:** works automatically.
+- **RaceRoom:** works automatically.
+- **Le Mans Ultimate:** needs the free **rF2 Shared Memory Map** plugin. SimHub and CrewChief install it for you. To install it by hand:
+  1. Download `rFactor2SharedMemoryMapPlugin64.dll` from https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin/releases
+  2. Copy it into `Le Mans Ultimate\Plugins\`
+  3. Start LMU once and close it. Then open `Le Mans Ultimate\UserData\player\CustomPluginVariables.json` and make sure the plugin's `" Enabled"` value is `1`.
+
+| Effect | What you feel | ACC | RaceRoom | LMU |
+|---|---|---|---|---|
+| ABS / lock-up | Hard pulses while ABS works or the front wheels lock | ✓ | ✓ | ✓ (lock-up) |
+| Kerbs | Fast rattle on rumble strips | ✓ | ✓ | ✓ |
+| Wheelspin / slide | Smooth rumble | ✓ | ✓ | ✓ |
+| Road surface | Grass, gravel, bumps (from the game's FFB signal) | ✓ | ✓ (off-track) | ✓ |
+| Impacts | Strong jolt | ✓ | ✓ | ✓ |
+| Gear shift | Short kick | ✓ | ✓ | ✓ |
+| Rev limiter | Buzz | ✓ | ✓ | ✓ |
+
+In the app, **SETUP → Vibration** has a strength slider for each effect and **Test all effects**.
+
+The **dashboard** shows shift lights (they flash blue at the shift point, and alternate when the pit limiter is on), gear, speed, TC / TC2 / ABS / MAP / brake bias, fuel and laps left, and the lap delta in ACC. The TC and ABS boxes light up when those systems are working. A game that doesn't report a value shows "–".
+
+## More settings in the app (SETUP)
+
+- **Bind controls in a game:** in the game's controls menu, click the control you want to assign. Then tap **Steering**, **Throttle** or **Brake** in SETUP. The app moves only that axis for 4 seconds, so the game can't pick up the wrong one.
+- **Brake pressure feel:** pressing harder adds brake. It works by measuring how much of your thumb touches the screen. Not every phone reports this; if yours doesn't, the setting does nothing.
+- **Brake release smoothing:** the brake lets go more gently, which makes it easier to hold a steady trail brake with a thumb.
+- **Gyro-fused sensor:** on by default. Steering is smoother and faster, and bumps or moving in your chair don't disturb it.
+- **Speed-sensitive steering:** steering gets calmer at high speed. It needs a running game for the speed data.
+- **Shift lights start:** sets how early the first LED lights.
+
 ## Button map (vJoy buttons)
 
 | # | Button | # | Button | # | Button |
@@ -113,7 +152,8 @@ In every game: keep PhoneWheel.exe running and the app connected. To bind a peda
 - **Steering goes the wrong way**: SETUP → Invert steering.
 - **The game binds steering when you wanted a pedal**: turn on LOCK first.
 - **Safety**: if the phone disconnects, the app is closed, or data stops for 0.3 s, the PC releases throttle, brake and all buttons.
-- **Not supported**: force feedback. A phone can't push back like a real wheel.
+- **No dashboard or vibration from the game**: check that the PC window shows the game name in `[ ]`. For LMU, install the plugin (see above). If the phone's settings have vibration turned off system-wide, the app can't vibrate either.
+- **Real force feedback (pushing back) isn't possible.** A phone can't resist your hands; vibration is the substitute.
 
 ## Without the app (browser version)
 PhoneWheel.exe also serves a browser version of the wheel:
@@ -122,5 +162,5 @@ PhoneWheel.exe also serves a browser version of the wheel:
 
 ## Project layout
 - `android/`: the Android app (Kotlin, no third-party libraries)
-- `pc/`: PC server (`server.py`, `vjoy.py`) and the browser version (`web/`). You can run it with Python instead of the .exe: run `setup.bat`, then `start.bat`.
+- `pc/`: PC server (`server.py`, `vjoy.py`, `telemetry.py`) and the browser version (`web/`). You can run it with Python instead of the .exe: run `setup.bat`, then `start.bat`.
 - `.github/workflows/build.yml`: builds `PhoneWheel.apk` and `PhoneWheel.exe` on GitHub

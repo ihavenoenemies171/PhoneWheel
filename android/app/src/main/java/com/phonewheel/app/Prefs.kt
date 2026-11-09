@@ -11,21 +11,40 @@ class Prefs(ctx: Context) {
     var manualIp = ""
 
     // steering
-    var range = 90f        // phone rotation lock-to-lock, degrees
-    var deadzone = 0.5f    // degrees
-    var smoothing = 0.2f   // 0..0.9
+    var range = 90f          // phone rotation lock-to-lock, degrees
+    var deadzone = 0.5f      // degrees
+    var smoothing = 0.2f     // 0..0.9
     var linearity = 1f
     var invert = false
+    var fusedSensor = true   // gyro-fused rotation sensor instead of plain gravity
+    var speedSens = 0f       // 0..1: extra steering range at high speed
 
     // pedals
     var pedalRelative = false
-    var pedalDead = 5f     // %
-    var pedalSat = 8f      // %
+    var pedalDead = 5f       // %
+    var pedalSat = 8f        // %
     var thrCurve = 1f
     var brkCurve = 1f
+    var brakePressure = 0f   // 0..100 % blend of thumb contact size into the brake
+    var brakeRelease = 0f    // ms; slows the brake release for smoother trail braking
+
+    // haptics (0..1 gains)
+    var hapticsOn = true
+    var hMaster = 1f
+    var hAbs = 0.9f
+    var hKerb = 0.7f
+    var hSlip = 0.5f
+    var hRoad = 0.35f
+    var hImpact = 1f
+    var hShift = 0.6f
+    var hLimiter = 0.5f
+    var hButtons = 0.6f
+
+    // dashboard
+    var showDash = true
+    var ledStart = 82f       // % of shift rpm where the first LED lights
 
     // misc
-    var haptics = true
     var showNums = false
 
     init { load() }
@@ -38,12 +57,27 @@ class Prefs(ctx: Context) {
         smoothing = sp.getFloat("smoothing", 0.2f)
         linearity = sp.getFloat("linearity", 1f)
         invert = sp.getBoolean("invert", false)
+        fusedSensor = sp.getBoolean("fusedSensor", true)
+        speedSens = sp.getFloat("speedSens", 0f)
         pedalRelative = sp.getBoolean("pedalRelative", false)
         pedalDead = sp.getFloat("pedalDead", 5f)
         pedalSat = sp.getFloat("pedalSat", 8f)
         thrCurve = sp.getFloat("thrCurve", 1f)
         brkCurve = sp.getFloat("brkCurve", 1f)
-        haptics = sp.getBoolean("haptics", true)
+        brakePressure = sp.getFloat("brakePressure", 0f)
+        brakeRelease = sp.getFloat("brakeRelease", 0f)
+        hapticsOn = sp.getBoolean("hapticsOn", sp.getBoolean("haptics", true))
+        hMaster = sp.getFloat("hMaster", 1f)
+        hAbs = sp.getFloat("hAbs", 0.9f)
+        hKerb = sp.getFloat("hKerb", 0.7f)
+        hSlip = sp.getFloat("hSlip", 0.5f)
+        hRoad = sp.getFloat("hRoad", 0.35f)
+        hImpact = sp.getFloat("hImpact", 1f)
+        hShift = sp.getFloat("hShift", 0.6f)
+        hLimiter = sp.getFloat("hLimiter", 0.5f)
+        hButtons = sp.getFloat("hButtons", 0.6f)
+        showDash = sp.getBoolean("showDash", true)
+        ledStart = sp.getFloat("ledStart", 82f)
         showNums = sp.getBoolean("showNums", false)
     }
 
@@ -56,12 +90,27 @@ class Prefs(ctx: Context) {
             .putFloat("smoothing", smoothing)
             .putFloat("linearity", linearity)
             .putBoolean("invert", invert)
+            .putBoolean("fusedSensor", fusedSensor)
+            .putFloat("speedSens", speedSens)
             .putBoolean("pedalRelative", pedalRelative)
             .putFloat("pedalDead", pedalDead)
             .putFloat("pedalSat", pedalSat)
             .putFloat("thrCurve", thrCurve)
             .putFloat("brkCurve", brkCurve)
-            .putBoolean("haptics", haptics)
+            .putFloat("brakePressure", brakePressure)
+            .putFloat("brakeRelease", brakeRelease)
+            .putBoolean("hapticsOn", hapticsOn)
+            .putFloat("hMaster", hMaster)
+            .putFloat("hAbs", hAbs)
+            .putFloat("hKerb", hKerb)
+            .putFloat("hSlip", hSlip)
+            .putFloat("hRoad", hRoad)
+            .putFloat("hImpact", hImpact)
+            .putFloat("hShift", hShift)
+            .putFloat("hLimiter", hLimiter)
+            .putFloat("hButtons", hButtons)
+            .putBoolean("showDash", showDash)
+            .putFloat("ledStart", ledStart)
             .putBoolean("showNums", showNums)
             .apply()
     }

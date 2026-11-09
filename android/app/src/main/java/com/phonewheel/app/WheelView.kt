@@ -27,6 +27,7 @@ class WheelView(
     ctx: Context,
     private val prefs: Prefs,
     private val st: InputState,
+    private val tel: Telem,
 ) : View(ctx) {
 
     // ------------------------------------------------------------------ callbacks
@@ -101,6 +102,7 @@ class WheelView(
     private val rTab1 = RectF()
     private val rSetup = RectF()
     private val rSteerBar = RectF()
+    private val rDash = RectF()
 
     private val pointers = HashMap<Int, Target>()
     private val pressCount = IntArray(33)
@@ -162,10 +164,18 @@ class WheelView(
         rLock.set(r - unit, pad, r, pad + tbH); r -= unit + tg
         rCenterBtn.set(cl, pad, r, pad + tbH)
 
-        val sbTop = pad + tbH + 5 * dp
-        rSteerBar.set(cl, sbTop, cr, sbTop + 22 * dp)
+        var y = pad + tbH + 5 * dp
+        if (prefs.showDash) {
+            val dashH = (h * 0.25f).coerceIn(76 * dp, 120 * dp)
+            rDash.set(cl, y, cr, y + dashH)
+            y += dashH + 5 * dp
+        } else {
+            rDash.setEmpty()
+        }
+        rSteerBar.set(cl, y, cr, y + 22 * dp)
 
         val gTop = rSteerBar.bottom + gap
+        layoutW = w; layoutH = h
         val gBottom = h - pad
         val cw = (cr - cl - 3 * gap) / 4f
         val ch = (gBottom - gTop - 3 * gap) / 4f
@@ -186,6 +196,15 @@ class WheelView(
                 Rect(rThrottle.left.toInt(), cy - half, w, cy + half),
             )
         }
+    }
+
+    private var layoutW = 0
+    private var layoutH = 0
+
+    /** Re-run layout after settings change (e.g. dashboard on/off). */
+    fun relayout() {
+        if (width > 0) onSizeChanged(width, height, width, height)
+        invalidate()
     }
 
     // ------------------------------------------------------------------ touch
@@ -211,6 +230,7 @@ class WheelView(
                 val i = ev.actionIndex
                 val id = ev.getPointerId(i)
                 val t = hitTest(ev.getX(i), ev.getY(i)) ?: return true
+                lastDownSize = ev.getTouchMajor(i)
                 pointers[id] = t
                 press(t, id, ev.getX(i), ev.getY(i))
             }
@@ -219,7 +239,7 @@ class WheelView(
                     val id = ev.getPointerId(i)
                     val t = pointers[id] ?: continue
                     when (t.kind) {
-                        Kind.BRAKE -> if (id == brakeOwner) { st.brk = pedalValue(rBrake, ev.getY(i), brakeOriginY, prefs.brkCurve); changed() }
+                        Kind.BRAKE -> if (id == brakeOwner) { st.brkIn = brakeValue(ev.getY(i), ev.getTouchMajor(i)); changed() }
                         Kind.THROTTLE -> if (id == throttleOwner) { st.thr = pedalValue(rThrottle, ev.getY(i), throttleOriginY, prefs.thrCurve); changed() }
                         Kind.STEERBAR -> if (id == steerOwner) setManualSteer(ev.getX(i))
                         else -> {}
@@ -237,7 +257,7 @@ class WheelView(
 
     private fun press(t: Target, id: Int, x: Float, y: Float) {
         when (t.kind) {
-            Kind.BRAKE -> { brakeOwner = id; brakeOriginY = y; st.brk = pedalValue(rBrake, y, y, prefs.brkCurve); changed() }
+            Kind.BRAKE -> { brakeOwner = id; brakeOriginY = y; st.brkIn = brakeValue(y, lastDownSize); changed() }
             Kind.THROTTLE -> { throttleOwner = id; throttleOriginY = y; st.thr = pedalValue(rThrottle, y, y, prefs.thrCurve); changed() }
             Kind.PADDLE_UP -> pressButton(1, 25)
             Kind.PADDLE_DOWN -> pressButton(2, 25)
@@ -253,7 +273,7 @@ class WheelView(
 
     private fun release(t: Target, id: Int) {
         when (t.kind) {
-            Kind.BRAKE -> if (id == brakeOwner) { brakeOwner = -1; st.brk = 0f; changed() }
+            Kind.BRAKE -> if (id == brakeOwner) { brakeOwner = -1; st.brkIn = 0f; changed() }
             Kind.THROTTLE -> if (id == throttleOwner) { throttleOwner = -1; st.thr = 0f; changed() }
             Kind.PADDLE_UP -> releaseButton(1)
             Kind.PADDLE_DOWN -> releaseButton(2)
@@ -268,7 +288,7 @@ class WheelView(
         pressCount.fill(0)
         brakeOwner = -1; throttleOwner = -1; steerOwner = -1
         manualSteer = null
-        st.thr = 0f; st.brk = 0f; st.mask = 0
+        st.thr = 0f; st.brkIn = 0f; st.brk = 0f; st.mask = 0
         changed()
     }
 
@@ -287,12 +307,36 @@ class WheelView(
         }
     }
 
-    private fun pedalValue(r: RectF, y: Float, originY: Float, curve: Float): Float {
-        var v = if (prefs.pedalRelative) (originY - y) / (r.height() * 0.6f) else (r.bottom - y) / r.height()
+    private fun pedalValue(r: RectF, y: Float, originY: Float, curve: Float): Float =
+        shape(pedalTravel(r, y, originY)).pow(curve)
+
+    private fun pedalTravel(r: RectF, y: Float, originY: Float): Float =
+        if (prefs.pedalRelative) (originY - y) / (r.height() * 0.6f) else (r.bottom - y) / r.height()
+
+    private fun shape(v: Float): Float {
         val lo = prefs.pedalDead / 100f
         val hi = 1f - prefs.pedalSat / 100f
-        v = ((v - lo) / max(0.05f, hi - lo)).coerceIn(0f, 1f)
-        return v.pow(curve)
+        return ((v - lo) / max(0.05f, hi - lo)).coerceIn(0f, 1f)
+    }
+
+    // --- pressure-sensitive brake: a harder press flattens the thumb, so the contact area grows
+    private var lastDownSize = 0f
+    private var sizeMin = 0f
+    private var sizeMax = 0f
+
+    private fun brakeValue(y: Float, size: Float): Float {
+        var v = shape(pedalTravel(rBrake, y, brakeOriginY))
+        val w = prefs.brakePressure / 100f
+        if (size > 0f) {
+            if (sizeMin == 0f || size < sizeMin) sizeMin = size
+            if (size > sizeMax) sizeMax = size
+        }
+        // only blend once the screen has shown it really reports contact size
+        if (w > 0f && sizeMin > 0f && sizeMax > sizeMin * 1.15f) {
+            val p = ((size - sizeMin) / (sizeMax - sizeMin)).coerceIn(0f, 1f)
+            v = v * (1f - w) + p * w
+        }
+        return v.coerceIn(0f, 1f).pow(prefs.brkCurve)
     }
 
     private fun setManualSteer(x: Float) {
@@ -328,6 +372,145 @@ class WheelView(
         drawSteerBar(c)
 
         for (b in buttons) if (b.page == page) drawButton(c, b)
+        if (!rDash.isEmpty) drawDash(c)
+        if (st.bindAxis != 0) drawBindBanner(c)
+        postInvalidateOnAnimation() // live dashboard / pedals
+    }
+
+    // ------------------------------------------------------------------ dashboard
+    private val ledColors = IntArray(15) { i ->
+        when {
+            i < 5 -> green
+            i < 10 -> 0xFFFFB000.toInt()
+            else -> red
+        }
+    }
+
+    private fun drawDash(c: Canvas) {
+        val r = rDash
+        val rad = 10 * dp
+        val now = android.os.SystemClock.elapsedRealtime()
+        fill.color = 0xFF07090B.toInt()
+        c.drawRoundRect(r, rad, rad, fill)
+        stroke.color = 0xFF2A2F37.toInt()
+        c.drawRoundRect(r, rad, rad, stroke)
+
+        val fresh = tel.dashFresh(now)
+        val inner = 8 * dp
+        // ---- shift lights
+        val ledTop = r.top + 6 * dp
+        val ledH = 9 * dp
+        val n = ledColors.size
+        val lgap = 3 * dp
+        val lw = (r.width() - 2 * inner - (n - 1) * lgap) / n
+        val shift = if (tel.shiftRpm > 0) tel.shiftRpm else tel.maxRpm
+        val start = shift * prefs.ledStart / 100f
+        val frac = if (fresh && shift > 0 && tel.rpm > start) ((tel.rpm - start) / (shift - start)) else 0f
+        val atShift = fresh && shift > 0 && tel.rpm >= shift
+        val blinkOn = (now / 70) % 2 == 0L
+        for (i in 0 until n) {
+            val x = r.left + inner + i * (lw + lgap)
+            tmp.set(x, ledTop, x + lw, ledTop + ledH)
+            fill.color = when {
+                fresh && tel.pitLimiter -> if (((now / 250) % 2 == 0L) == (i % 2 == 0)) blue else 0xFF161A20.toInt()
+                atShift -> if (blinkOn) blue else 0xFF161A20.toInt()
+                frac * n > i -> ledColors[i]
+                else -> 0xFF161A20.toInt()
+            }
+            c.drawRoundRect(tmp, 3 * dp, 3 * dp, fill)
+        }
+
+        val top = ledTop + ledH + 4 * dp
+        val bodyH = r.bottom - top - 4 * dp
+        if (!fresh) {
+            text.color = 0xFF5A6370.toInt()
+            text.typeface = condensed
+            text.textSize = 14 * dp
+            val msg = if (status.connected) "Start ACC, RaceRoom or LMU to see live data" else "Not connected to PC"
+            c.drawText(msg, r.centerX(), top + bodyH / 2 + 5 * dp, text)
+            text.typeface = condensedBold
+            return
+        }
+
+        // ---- left: speed + delta
+        val leftW = r.width() * 0.26f
+        text.textAlign = Paint.Align.CENTER
+        text.color = Color.WHITE
+        text.textSize = (bodyH * 0.42f).coerceAtMost(34 * dp)
+        val lx = r.left + inner + leftW / 2
+        c.drawText(tel.speed.coerceAtLeast(0).toString(), lx, top + bodyH * 0.45f, text)
+        text.typeface = condensed
+        text.textSize = 10 * dp
+        text.color = 0xFF8A94A3.toInt()
+        c.drawText("KM/H", lx, top + bodyH * 0.45f + 12 * dp, text)
+        if (tel.deltaMs != Int.MIN_VALUE) {
+            val d = tel.deltaMs / 1000f
+            text.typeface = condensedBold
+            text.textSize = 14 * dp
+            text.color = if (d > 0) red else green
+            c.drawText(String.format(java.util.Locale.US, "%+.2f", d), lx, top + bodyH - 2 * dp, text)
+        }
+        text.typeface = condensedBold
+
+        // ---- center: gear
+        val gearW = r.width() * 0.2f
+        val gx = r.left + inner + leftW + gearW / 2
+        text.textSize = bodyH * 0.95f
+        text.color = if (atShift) blue else Color.WHITE
+        val g = when {
+            tel.gear < 0 -> "R"
+            tel.gear == 0 -> "N"
+            else -> tel.gear.toString()
+        }
+        c.drawText(g, gx, top + bodyH * 0.84f, text)
+
+        // ---- right: chips
+        val chipsL = r.left + inner + leftW + gearW + 4 * dp
+        val chipsR = r.right - inner
+        val cw = (chipsR - chipsL - 2 * 4 * dp) / 3
+        val ch = (bodyH - 4 * dp) / 2
+        fun chip(col: Int, row: Int, label: String, value: String, hot: Int?) {
+            val x = chipsL + col * (cw + 4 * dp)
+            val yy = top + row * (ch + 4 * dp)
+            tmp.set(x, yy, x + cw, yy + ch)
+            fill.color = hot ?: 0xFF14181D.toInt()
+            c.drawRoundRect(tmp, 6 * dp, 6 * dp, fill)
+            text.typeface = condensed
+            text.textSize = (ch * 0.28f).coerceAtMost(11 * dp)
+            text.color = if (hot != null) 0xCC0B0D10.toInt() else 0xFF8A94A3.toInt()
+            c.drawText(label, tmp.centerX(), yy + ch * 0.36f, text)
+            text.typeface = condensedBold
+            text.textSize = (ch * 0.48f).coerceAtMost(20 * dp)
+            text.color = if (hot != null) 0xFF0B0D10.toInt() else Color.WHITE
+            c.drawText(value, tmp.centerX(), yy + ch * 0.86f, text)
+        }
+        fun iv(v: Int) = if (v >= 0) v.toString() else "–"
+        fun fv(v: Float) = if (v >= 0f) String.format(java.util.Locale.US, "%.1f", v) else "–"
+        chip(0, 0, "TC", iv(tel.tc), if (tel.tcActive) yellow else null)
+        chip(1, 0, "TC2", iv(tel.tc2), null)
+        chip(2, 0, "ABS", iv(tel.abs), if (tel.absActive) orange else null)
+        chip(0, 1, "MAP", iv(tel.map), null)
+        chip(1, 1, "BB", fv(tel.bb), null)
+        val fuelLabel = if (tel.fuelLaps > 0f) String.format(java.util.Locale.US, "FUEL %.1f LAPS", tel.fuelLaps) else "FUEL L"
+        chip(2, 1, fuelLabel, fv(tel.fuel), if (tel.fuelLaps > 0f && tel.fuelLaps < 1.5f) red else null)
+    }
+
+    private fun drawBindBanner(c: Canvas) {
+        val name = when (st.bindAxis) { 1 -> "STEERING"; 2 -> "THROTTLE"; else -> "BRAKE" }
+        val w = width.toFloat()
+        tmp.set(w * 0.25f, height * 0.4f, w * 0.75f, height * 0.6f)
+        fill.color = 0xEE000000.toInt()
+        c.drawRoundRect(tmp, 14 * dp, 14 * dp, fill)
+        stroke.color = yellow
+        c.drawRoundRect(tmp, 14 * dp, 14 * dp, stroke)
+        text.color = yellow
+        text.textSize = 20 * dp
+        c.drawText("BINDING: SWEEPING $name", tmp.centerX(), tmp.centerY() - 2 * dp, text)
+        text.typeface = condensed
+        text.textSize = 13 * dp
+        text.color = Color.WHITE
+        c.drawText("Click the control in the game now", tmp.centerX(), tmp.centerY() + 20 * dp, text)
+        text.typeface = condensedBold
     }
 
     private fun drawPedal(c: Canvas, r: RectF, v: Float, label: String, color: Int, rot: Float) {

@@ -8,6 +8,7 @@ import android.text.InputType
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -16,13 +17,21 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.TextView
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /** Settings screen, built in code (no layout XML / libraries needed). */
 object SettingsDialog {
 
-    fun show(act: Activity, p: Prefs, onDone: () -> Unit) {
+    class Actions(
+        val testVibration: () -> Unit,
+        val bind: (axis: Int) -> Unit,
+        val vibrationInfo: String,
+    )
+
+    fun show(act: Activity, p: Prefs, actions: Actions, onDone: () -> Unit) {
         val dp = act.resources.displayMetrics.density
+        var dialog: AlertDialog? = null
         val root = LinearLayout(act).apply {
             orientation = LinearLayout.VERTICAL
             setPadding((20 * dp).toInt(), (8 * dp).toInt(), (20 * dp).toInt(), (8 * dp).toInt())
@@ -35,7 +44,7 @@ object SettingsDialog {
                 textSize = 13f
                 typeface = Typeface.DEFAULT_BOLD
                 letterSpacing = 0.12f
-                setPadding(0, (16 * dp).toInt(), 0, (4 * dp).toInt())
+                setPadding(0, (18 * dp).toInt(), 0, (4 * dp).toInt())
             })
         }
 
@@ -58,7 +67,7 @@ object SettingsDialog {
             val out = TextView(act).apply { text = fmt(value); setTextColor(0xFFFFCC00.toInt()); textSize = 15f }
             top.addView(name); top.addView(out)
             row.addView(top)
-            row.addView(TextView(act).apply { text = sub; setTextColor(0xFF8A94A3.toInt()); textSize = 12f })
+            if (sub.isNotEmpty()) row.addView(TextView(act).apply { text = sub; setTextColor(0xFF8A94A3.toInt()); textSize = 12f })
             val steps = ((hi - lo) / step).roundToInt()
             row.addView(SeekBar(act).apply {
                 max = steps
@@ -76,9 +85,12 @@ object SettingsDialog {
             root.addView(row)
         }
 
+        fun pct(label: String, sub: String, value: Float, set: (Float) -> Unit) =
+            slider(label, sub, 0f, 1f, 0.05f, value, { "${(it * 100).roundToInt()}%" }, set)
+
         fun check(label: String, sub: String, value: Boolean, set: (Boolean) -> Unit) {
             root.addView(CheckBox(act).apply {
-                text = "$label\n$sub"
+                text = if (sub.isEmpty()) label else "$label\n$sub"
                 setTextColor(Color.WHITE)
                 textSize = 14f
                 isChecked = value
@@ -86,6 +98,22 @@ object SettingsDialog {
                 setOnCheckedChangeListener { _, c -> set(c) }
             })
         }
+
+        fun buttonRow(vararg items: Pair<String, () -> Unit>) {
+            val row = LinearLayout(act).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, (6 * dp).toInt(), 0, 0) }
+            for ((label, action) in items) {
+                row.addView(Button(act).apply {
+                    text = label
+                    isAllCaps = false
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnClickListener { action() }
+                })
+            }
+            root.addView(row)
+        }
+
+        fun f1(v: Float) = String.format(Locale.US, "%.1f", v)
+        fun f2(v: Float) = String.format(Locale.US, "%.2f", v)
 
         // ---------------------------------------------------------- connection
         header("CONNECTION")
@@ -124,33 +152,68 @@ object SettingsDialog {
         root.addView(ipBox)
         hint("The PhoneWheel PC program shows this PC's address when it starts.")
 
+        // ---------------------------------------------------------- binding helper
+        header("BIND CONTROLS IN A GAME")
+        hint("In the game's controls menu, click the control to assign, then tap a button here. " +
+             "The app sweeps only that axis for 4 seconds so the game picks the right one. " +
+             "For buttons, just press the button on the wheel.")
+        fun bind(axis: Int) { actions.bind(axis); dialog?.dismiss() }
+        buttonRow("Steering" to { bind(1) }, "Throttle" to { bind(2) }, "Brake" to { bind(3) })
+
+        // ---------------------------------------------------------- vibration
+        header("VIBRATION (FORCE FEEDBACK)")
+        hint(actions.vibrationInfo + " Effects come from the game: ABS / lock-ups, kerbs, wheelspin, " +
+             "road surface, impacts, gear shifts, rev limiter.")
+        check("Vibration on", "", p.hapticsOn) { p.hapticsOn = it }
+        buttonRow("Test all effects" to { actions.testVibration() })
+        pct("Overall strength", "", p.hMaster) { p.hMaster = it }
+        pct("ABS / wheel lock-up", "Pulses when ABS works or the fronts lock", p.hAbs) { p.hAbs = it }
+        pct("Kerbs", "Rattle on rumble strips", p.hKerb) { p.hKerb = it }
+        pct("Wheelspin / slide", "Rumble when the rears spin or the car slides", p.hSlip) { p.hSlip = it }
+        pct("Road surface", "Grass, gravel and road texture", p.hRoad) { p.hRoad = it }
+        pct("Impacts", "Jolt on contact", p.hImpact) { p.hImpact = it }
+        pct("Gear shift", "Kick on every shift", p.hShift) { p.hShift = it }
+        pct("Rev limiter", "Buzz at the limiter", p.hLimiter) { p.hLimiter = it }
+        pct("Button clicks", "Buzz when pressing wheel buttons", p.hButtons) { p.hButtons = it }
+
+        // ---------------------------------------------------------- dashboard
+        header("DASHBOARD")
+        check("Show dashboard", "Shift lights, gear, speed, TC/ABS/MAP/BB, fuel, delta", p.showDash) { p.showDash = it }
+        slider("Shift lights start", "First LED lights at this % of the shift point", 50f, 98f, 1f, p.ledStart,
+            { "${it.roundToInt()}%" }) { p.ledStart = it }
+
         // ---------------------------------------------------------- steering
         header("STEERING")
         slider("Steering range", "How far you rotate the phone, lock to lock", 30f, 360f, 5f, p.range,
             { "${it.roundToInt()}°" }) { p.range = it }
+        check("Gyro-fused sensor", "Smoother, faster and ignores bumps. Turn off if steering drifts.", p.fusedSensor) { p.fusedSensor = it }
+        pct("Speed-sensitive steering", "Calmer steering at high speed (needs a running game)", p.speedSens) { p.speedSens = it }
         slider("Center deadzone", "Degrees ignored around center", 0f, 5f, 0.1f, p.deadzone,
-            { String.format("%.1f°", it) }) { p.deadzone = it }
+            { f1(it) + "°" }) { p.deadzone = it }
         slider("Smoothing", "Higher = steadier but slightly more lag", 0f, 0.9f, 0.05f, p.smoothing,
             { "${(it * 100).roundToInt()}%" }) { p.smoothing = it }
         slider("Linearity", ">1 softer near center, <1 sharper", 0.5f, 2.5f, 0.05f, p.linearity,
-            { String.format("%.2f", it) }) { p.linearity = it }
+            { f2(it) }) { p.linearity = it }
         check("Invert steering", "Use if steering goes the wrong way", p.invert) { p.invert = it }
 
         // ---------------------------------------------------------- pedals
         header("PEDALS")
+        slider("Brake pressure feel", "Pressing harder adds brake (uses thumb contact size; not every phone reports it)",
+            0f, 100f, 5f, p.brakePressure, { "${it.roundToInt()}%" }) { p.brakePressure = it }
+        slider("Brake release smoothing", "Brake lets go more gently for steadier trail braking", 0f, 300f, 10f,
+            p.brakeRelease, { if (it <= 0f) "off" else "${it.roundToInt()} ms" }) { p.brakeRelease = it }
         check("Relative pedals", "Off: height on the strip = amount. On: slide up from where you touch", p.pedalRelative) { p.pedalRelative = it }
         slider("Pedal deadzone", "Bottom part ignored (rest your thumb)", 0f, 30f, 1f, p.pedalDead,
             { "${it.roundToInt()}%" }) { p.pedalDead = it }
         slider("Pedal saturation", "Top part that already counts as 100%", 0f, 30f, 1f, p.pedalSat,
             { "${it.roundToInt()}%" }) { p.pedalSat = it }
         slider("Throttle curve", ">1 finer control at low throttle", 0.4f, 3f, 0.05f, p.thrCurve,
-            { String.format("%.2f", it) }) { p.thrCurve = it }
+            { f2(it) }) { p.thrCurve = it }
         slider("Brake curve", ">1 finer control for trail braking", 0.4f, 3f, 0.05f, p.brkCurve,
-            { String.format("%.2f", it) }) { p.brkCurve = it }
+            { f2(it) }) { p.brkCurve = it }
 
         // ---------------------------------------------------------- other
         header("OTHER")
-        check("Vibration", "Buzz when pressing buttons", p.haptics) { p.haptics = it }
         check("Show button numbers", "vJoy button number on each key (for binding)", p.showNums) { p.showNums = it }
         root.addView(TextView(act).apply {
             text = "PhoneWheel • vJoy buttons: 1 upshift, 2 downshift, 3–32 wheel keys"
@@ -173,6 +236,7 @@ object SettingsDialog {
                 onDone()
             }
             .create()
+        dialog = dlg
         dlg.show()
     }
 }

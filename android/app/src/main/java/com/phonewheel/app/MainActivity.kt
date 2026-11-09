@@ -9,7 +9,6 @@ import android.hardware.SensorManager
 import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
-import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.View
 import android.view.WindowInsets
@@ -31,7 +30,10 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var prefs: Prefs
     private lateinit var wheel: WheelView
     private lateinit var link: Link
+    private lateinit var haptics: Haptics
     private val st = InputState()
+    private val tel = Telem()
+    private val rotMatrix = FloatArray(9)
 
     private lateinit var sensors: SensorManager
     private var tiltSensor: Sensor? = null
@@ -51,10 +53,10 @@ class MainActivity : Activity(), SensorEventListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         prefs = Prefs(this)
 
-        wheel = WheelView(this, prefs, st)
+        wheel = WheelView(this, prefs, st, tel)
         setContentView(wheel)
 
-        link = Link(st) { s -> runOnUiThread { onLinkStatus(s) } }
+        link = Link(st, tel) { s -> runOnUiThread { onLinkStatus(s) } }
         wheel.onInput = { link.kick() }
         wheel.onCenter = { centerSteering() }
         wheel.onSettings = { openSettings() }
@@ -62,27 +64,45 @@ class MainActivity : Activity(), SensorEventListener {
         wheel.onSteerModeChanged = { updateSteer() }
 
         sensors = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        // gravity is the gyro-fused, low-noise version of the accelerometer
-        tiltSensor = sensors.getDefaultSensor(Sensor.TYPE_GRAVITY) ?: sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        pickSensor()
         @Suppress("DEPRECATION")
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+        haptics = Haptics(vibrator, prefs, tel)
 
         if (tiltSensor == null) toast("This phone has no motion sensor. Drag the steering bar to steer.")
+    }
+
+    /** Fused = gyroscope + accelerometer (smoother, faster, ignores bumps); falls back to gravity. */
+    private fun pickSensor() {
+        val fused = if (prefs.fusedSensor) sensors.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR) else null
+        tiltSensor = fused
+            ?: sensors.getDefaultSensor(Sensor.TYPE_GRAVITY)
+            ?: sensors.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+    }
+
+    private fun registerSensor() {
+        sensors.unregisterListener(this)
+        tiltSensor?.let { sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
+        centerDeg = null // re-center on the first reading
+        lastTs = 0L
     }
 
     override fun onResume() {
         super.onResume()
         hideSystemUi()
-        tiltSensor?.let { sensors.registerListener(this, it, SensorManager.SENSOR_DELAY_FASTEST) }
-        centerDeg = null // re-center on the first reading
+        registerSensor()
+        st.brakeReleaseMs = prefs.brakeRelease
         link.start(prefs.mode, prefs.manualIp)
+        haptics.start()
     }
 
     override fun onPause() {
         super.onPause()
         sensors.unregisterListener(this)
+        haptics.stop()
         wheel.releaseAll()
         st.zero()
+        st.bindAxis = 0
         link.stop() // sends "release everything" to the PC
     }
 
@@ -98,13 +118,25 @@ class MainActivity : Activity(), SensorEventListener {
             rotationCheckedAt = now
             rotation = currentRotation()
         }
-        val x = e.values[0]
-        val y = e.values[1]
+        val x: Float
+        val y: Float
+        val minLen: Double
+        if (e.sensor.type == Sensor.TYPE_GAME_ROTATION_VECTOR) {
+            // "up" direction in phone coordinates = 3rd row of the rotation matrix
+            SensorManager.getRotationMatrixFromVector(rotMatrix, e.values)
+            x = rotMatrix[6]
+            y = rotMatrix[7]
+            minLen = 0.15
+        } else {
+            x = e.values[0]
+            y = e.values[1]
+            minLen = 1.5
+        }
         // gravity vector in screen coordinates
         val a = Math.toRadians(rotation * 90.0)
         val sx = x * cos(a) - y * sin(a)
         val sy = x * sin(a) + y * cos(a)
-        if (hypot(sx, sy) < 1.5) return // phone lying flat: no usable roll angle
+        if (hypot(sx, sy) < minLen) return // phone lying flat: no usable roll angle
         val deg = (-Math.toDegrees(atan2(sx, sy))).toFloat() // clockwise = positive = right
 
         val dt = if (lastTs == 0L) 0.016f else ((e.timestamp - lastTs) / 1e9f).coerceIn(0f, 0.1f)
@@ -132,7 +164,10 @@ class MainActivity : Activity(), SensorEventListener {
             manual != null -> manual
             rawDeg == null -> 0f
             else -> {
-                val half = prefs.range / 2f
+                // speed-sensitive: more phone rotation needed at high speed = calmer steering
+                val now = SystemClock.elapsedRealtime()
+                val speedK = if (tel.dashFresh(now)) (tel.speed / 250f).coerceIn(0f, 1f) else 0f
+                val half = prefs.range / 2f * (1f + prefs.speedSens * speedK)
                 var m = abs(smoothDeg)
                 m = if (m <= prefs.deadzone) 0f else (m - prefs.deadzone) / max(1f, half - prefs.deadzone)
                 m = m.coerceIn(0f, 1f).pow(prefs.linearity)
@@ -172,21 +207,29 @@ class MainActivity : Activity(), SensorEventListener {
     private fun openSettings() {
         val oldMode = prefs.mode
         val oldIp = prefs.manualIp
-        SettingsDialog.show(this, prefs) {
+        val oldFused = prefs.fusedSensor
+        SettingsDialog.show(this, prefs, SettingsDialog.Actions(
+            testVibration = { haptics.test() },
+            bind = { axis ->
+                st.bindAxis = axis
+                st.bindStartMs = SystemClock.elapsedRealtime()
+                link.kick()
+            },
+            vibrationInfo = when {
+                !haptics.supported -> "This phone has no vibration motor."
+                !haptics.amplitudeControl -> "This phone's motor can only switch on/off, so effects are simpler."
+                else -> "This phone supports variable vibration strength."
+            },
+        )) {
             if (prefs.mode != oldMode || prefs.manualIp != oldIp) link.start(prefs.mode, prefs.manualIp)
-            wheel.invalidate()
+            if (prefs.fusedSensor != oldFused) { pickSensor(); registerSensor() }
+            st.brakeReleaseMs = prefs.brakeRelease
+            wheel.relayout()
             hideSystemUi()
         }
     }
 
-    private fun buzz(ms: Long) {
-        if (!prefs.haptics) return
-        val v = vibrator ?: return
-        if (!v.hasVibrator()) return
-        try {
-            v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE))
-        } catch (_: Exception) {}
-    }
+    private fun buzz(ms: Long) = haptics.pulse(ms)
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
