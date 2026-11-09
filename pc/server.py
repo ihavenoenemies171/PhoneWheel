@@ -103,35 +103,63 @@ def print_qr(url):
 
 # ---------------------------------------------------------------- state
 class Wheel:
+    BOX_TIMEOUT = 0.3   # a button box that goes quiet has its buttons released
+
     def __init__(self, dev):
         self.dev = dev
         self.steer = 0.0
         self.thr = 0.0
         self.brk = 0.0
-        self.btn = 0
+        self.clutch = 0.0
+        self.hbrake = 0.0
+        self.btn = 0            # buttons from the wheel phone
+        self.boxes = {}         # second devices: peer -> (button mask, last seen)
         self.last = 0.0
         self.client = None
         self.rate = 0
         self._count = 0
         self.apply()
 
+    @property
+    def buttons(self):
+        m = self.btn
+        for mask, _t in self.boxes.values():
+            m |= mask
+        return m
+
     def apply(self):
         self.dev.set_axis(vjoy.AXIS_X, (self.steer + 1.0) / 2.0)
         self.dev.set_axis(vjoy.AXIS_Y, self.thr)
         self.dev.set_axis(vjoy.AXIS_Z, self.brk)
-        self.dev.set_buttons(self.btn)
+        self.dev.set_axis(vjoy.AXIS_RX, self.clutch)
+        self.dev.set_axis(vjoy.AXIS_RY, self.hbrake)
+        self.dev.set_buttons(self.buttons)
 
-    def update(self, s, t, b, mask):
+    def update(self, s, t, b, mask, c=0.0, h=0.0):
         self.steer = max(-1.0, min(1.0, s))
         self.thr = max(0.0, min(1.0, t))
         self.brk = max(0.0, min(1.0, b))
+        self.clutch = max(0.0, min(1.0, c))
+        self.hbrake = max(0.0, min(1.0, h))
         self.btn = mask & 0xFFFFFFFF
         self.last = time.monotonic()
         self._count += 1
         self.apply()
 
+    def update_box(self, peer, mask):
+        self.boxes[peer] = (mask & 0xFFFFFFFF, time.monotonic())
+        self.apply()
+
+    def expire_boxes(self):
+        now = time.monotonic()
+        old = [p for p, (_m, t) in self.boxes.items() if now - t > self.BOX_TIMEOUT]
+        for p in old:
+            del self.boxes[p]
+        if old:
+            self.apply()
+
     def release(self):
-        self.steer, self.thr, self.brk, self.btn = 0.0, 0.0, 0.0, 0
+        self.steer, self.thr, self.brk, self.btn, self.clutch, self.hbrake = 0.0, 0.0, 0.0, 0, 0.0, 0.0
         self.apply()
 
 
@@ -142,12 +170,38 @@ class Wheel:
 #   d,<seq>,<s>,<t>,<b>,<m> input: steer -1..1, throttle 0..1, brake 0..1, button mask
 #   bye                     release everything
 class AppLink:
+    """Native app protocol. Several devices can be connected: one wheel (steering, pedals, buttons)
+    plus button boxes (buttons only). Dashboard / vibration data goes to all of them."""
+
     def __init__(self, wheel):
         self.wheel = wheel
         self.last_seq = {}
-        self.push = None        # function that sends a line to the active app
-        self.push_peer = None
+        self.targets = {}       # peer -> [reply function, last seen]
         self.on_cfg = None      # coach settings from the app
+
+    def push(self, line):
+        now = time.monotonic()
+        for peer, (reply, seen) in list(self.targets.items()):
+            if now - seen > 3.0:
+                del self.targets[peer]
+                continue
+            try:
+                reply(line)
+            except Exception:
+                pass
+
+    @property
+    def has_targets(self):
+        return bool(self.targets)
+
+    def _seq_ok(self, peer, seq, kind):
+        if kind != "wifi":
+            return True
+        last = self.last_seq.get(peer)          # UDP can reorder: drop stale packets
+        if last is not None and 0 < last - seq < 50:
+            return False
+        self.last_seq[peer] = seq
+        return True
 
     def handle(self, line, peer, reply, kind):
         line = line.strip()
@@ -159,21 +213,31 @@ class AppLink:
                 return
             try:
                 seq = int(parts[1])
-                vals = float(parts[2]), float(parts[3]), float(parts[4]), int(parts[5])
+                vals = [float(parts[2]), float(parts[3]), float(parts[4]), int(parts[5])]
+                if len(parts) >= 8:
+                    vals += [float(parts[6]), float(parts[7])]
             except ValueError:
                 return
-            if kind == "wifi":  # UDP can reorder: drop stale packets
-                last = self.last_seq.get(peer)
-                if last is not None and 0 < last - seq < 50:
-                    return
-                self.last_seq[peer] = seq
+            if not self._seq_ok(peer, seq, kind):
+                return
+            self.targets[peer] = [reply, time.monotonic()]
             name = f"{peer} ({kind})"
-            self.push = reply
-            self.push_peer = name
             if self.wheel.client != name:
                 self.wheel.client = name
-                print(f"\n[+] PhoneWheel app connected: {name}")
+                print(f"\n[+] PhoneWheel wheel connected: {name}")
             self.wheel.update(*vals)
+        elif line.startswith("b,"):
+            parts = line.split(",")
+            try:
+                seq, mask = int(parts[1]), int(parts[2])
+            except (IndexError, ValueError):
+                return
+            if not self._seq_ok(peer, seq, kind):
+                return
+            if peer not in self.wheel.boxes:
+                print(f"\n[+] Button box connected: {peer} ({kind})")
+            self.targets[peer] = [reply, time.monotonic()]
+            self.wheel.update_box(peer, mask)
         elif line.startswith("p,"):
             reply("q," + line[2:])
         elif line.startswith("cfg,"):
@@ -183,12 +247,15 @@ class AppLink:
             reply(f"PW!,{socket.gethostname()},{self.wheel.dev.button_count}")
         elif line == "bye":
             self.last_seq.pop(peer, None)
-            if self.push_peer and self.push_peer.startswith(str(peer)):
-                self.push = None
-            self.wheel.release()
-            if self.wheel.client and self.wheel.client.startswith(str(peer)):
+            self.targets.pop(peer, None)
+            if peer in self.wheel.boxes:
+                del self.wheel.boxes[peer]
+                self.wheel.apply()
+                print(f"\n[-] Button box left ({peer})")
+            elif self.wheel.client and self.wheel.client.startswith(str(peer)):
+                self.wheel.release()
                 self.wheel.client = None
-                print(f"\n[-] PhoneWheel app left ({peer}) - inputs released")
+                print(f"\n[-] PhoneWheel wheel left ({peer}) - inputs released")
 
 
 class UdpProto(asyncio.DatagramProtocol):
@@ -201,7 +268,7 @@ class UdpProto(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         msg = data.decode("ascii", "ignore")
-        self.link.handle(msg, addr[0], lambda r: self.transport.sendto(r.encode(), addr), "wifi")
+        self.link.handle(msg, f"{addr[0]}:{addr[1]}", lambda r: self.transport.sendto(r.encode(), addr), "wifi")
 
     def error_received(self, exc):
         pass
@@ -210,7 +277,7 @@ class UdpProto(asyncio.DatagramProtocol):
 def make_tcp_handler(link, wheel):
     async def handle(reader, writer):
         peer = writer.get_extra_info("peername")
-        peer = peer[0] if peer else "?"
+        peer = f"{peer[0]}:{peer[1]}" if peer else "?"
         sock = writer.get_extra_info("socket")
         if sock is not None:
             try:
@@ -231,6 +298,10 @@ def make_tcp_handler(link, wheel):
         except (ConnectionError, OSError):
             pass
         finally:
+            link.targets.pop(peer, None)
+            if peer in wheel.boxes:
+                del wheel.boxes[peer]
+                wheel.apply()
             name = f"{peer} (usb)"
             if wheel.client == name:
                 wheel.client = None
@@ -358,9 +429,11 @@ async def watchdog(app):
     while True:
         await asyncio.sleep(0.05)
         now = time.monotonic()
-        if wheel.last and now - wheel.last > WATCHDOG_S and (wheel.thr or wheel.brk or wheel.btn or wheel.steer):
+        if wheel.last and now - wheel.last > WATCHDOG_S and (wheel.thr or wheel.brk or wheel.btn or wheel.steer
+                                                              or wheel.clutch or wheel.hbrake):
             wheel.release()
             print("\n[!] No data from phone - inputs released")
+        wheel.expire_boxes()
         if wheel.client and wheel.client.endswith("(wifi)") and now - wheel.last > 2.0:
             print(f"\n[-] {wheel.client} went quiet")
             wheel.client = None
@@ -368,7 +441,7 @@ async def watchdog(app):
             wheel.rate = wheel._count * 4
             wheel._count = 0
             last_print = now
-            pressed = [str(i + 1) for i in range(32) if wheel.btn & (1 << i)]
+            pressed = [str(i + 1) for i in range(32) if wheel.buttons & (1 << i)]
             tel = app["shared"].get("telemetry")
             game = f"  [{tel.game}]" if tel is not None and tel.game else ""
             line = (f"\r  steer {wheel.steer:+.2f}  thr {wheel.thr:4.0%}  brk {wheel.brk:4.0%}  "
@@ -408,9 +481,9 @@ async def telemetry_loop(app):
             if ev[0] == "c":
                 print(f"\n[coach] {ev[1]}")
         link = app["shared"].get("link")
-        push = link.push if link else None
-        if push is None:
+        if link is None or not link.has_targets:
             continue
+        push = link.push
         if link.on_cfg is None:
             link.on_cfg = coach.configure
         try:
@@ -501,6 +574,9 @@ def main():
                 print(f"  WARNING: device has only {dev.button_count} buttons. Set it to 32 in 'Configure vJoy'.")
             if dev.missing_axes:
                 print(f"  WARNING: missing axes {dev.missing_axes}. Enable X, Y, Z in 'Configure vJoy'.")
+            if getattr(dev, "missing_extra", None):
+                print(f"  Note: axes {dev.missing_extra} are off in vJoy, so clutch / handbrake levers won't work. "
+                      "Tick Rx and Ry in 'Configure vJoy' if you want them.")
         except vjoy.VJoyError as e:
             print(f"  vJoy problem: {e}")
             print("  >>> Falling back to DRY RUN: the phone connects, but GAMES WILL NOT SEE INPUT. <<<")

@@ -38,61 +38,36 @@ class WheelView(
     var onHaptic: (Long) -> Unit = {}
     var onDetent: () -> Unit = {}
 
-    // ------------------------------------------------------------------ button map (vJoy 1..32)
-    private class Btn(
-        val num: Int, val label: String, val sub: String, val color: Int,
-        val page: Int, val row: Int, val col: Int, val rowSpan: Int = 1, val colSpan: Int = 1,
-    ) {
-        val rect = RectF()
+    // ------------------------------------------------------------------ layout (editable, per profile)
+    var layout: LayoutModel = LayoutModel.fromJson(prefs.layoutJson)
+        private set
+
+    /** A tile of the current layout, positioned on screen. */
+    private class Tile(val item: LItem, val pageIdx: Int) { val rect = RectF() }
+    private var tiles: List<Tile> = emptyList()
+
+    private val red = Palette.RED
+    private val green = Palette.GREEN
+    private val yellow = Palette.YELLOW
+    private val orange = Palette.ORANGE
+    private val blue = Palette.BLUE
+    private val boxMode get() = prefs.role == Prefs.ROLE_BOX
+
+    fun reloadLayout() {
+        layout = LayoutModel.fromJson(prefs.layoutJson)
+        if (page >= layout.pages.size) page = 0
+        relayout()
     }
 
-    private val red = 0xFFFF3B30.toInt()
-    private val green = 0xFF2BD96B.toInt()
-    private val yellow = 0xFFFFCC00.toInt()
-    private val orange = 0xFFFF8A00.toInt()
-    private val blue = 0xFF2F8CFF.toInt()
-    private val purple = 0xFFB06BFF.toInt()
-    private val white = 0xFFDFE5EC.toInt()
-    private val cyan = 0xFF2FD6E0.toInt()
-
-    private val buttons = listOf(
-        // DRIVE page
-        Btn(3, "PIT", "LIMITER", blue, 0, 0, 0),
-        Btn(4, "LIGHTS", "", white, 0, 0, 1),
-        Btn(5, "FLASH", "", white, 0, 0, 2),
-        Btn(6, "WIPER", "", cyan, 0, 0, 3),
-        Btn(8, "TC +", "", yellow, 0, 1, 0),
-        Btn(10, "ABS +", "", orange, 0, 1, 1),
-        Btn(12, "MAP +", "ENGINE", blue, 0, 1, 2),
-        Btn(14, "BB +", "BIAS FWD", purple, 0, 1, 3),
-        Btn(9, "TC −", "", yellow, 0, 2, 0),
-        Btn(11, "ABS −", "", orange, 0, 2, 1),
-        Btn(13, "MAP −", "ENGINE", blue, 0, 2, 2),
-        Btn(15, "BB −", "BIAS REAR", purple, 0, 2, 3),
-        Btn(18, "◀ IND", "LEFT", orange, 0, 3, 0),
-        Btn(16, "IGN", "IGNITION", red, 0, 3, 1),
-        Btn(17, "START", "ENGINE", green, 0, 3, 2),
-        Btn(19, "IND ▶", "RIGHT", orange, 0, 3, 3),
-        // MFD page
-        Btn(20, "HAZARD", "", red, 1, 0, 0),
-        Btn(25, "▲", "MFD UP", white, 1, 0, 1),
-        Btn(30, "PAGE", "MFD CYCLE", cyan, 1, 0, 2),
-        Btn(31, "ESC", "MENU", red, 1, 0, 3),
-        Btn(27, "◀", "MFD LEFT", white, 1, 1, 0),
-        Btn(29, "OK", "ENTER", green, 1, 1, 1),
-        Btn(28, "▶", "MFD RIGHT", white, 1, 1, 2),
-        Btn(32, "HUD", "CYCLE", blue, 1, 1, 3, rowSpan = 2),
-        Btn(24, "CAM", "CAMERA", purple, 1, 2, 0),
-        Btn(26, "▼", "MFD DOWN", white, 1, 2, 1),
-        Btn(7, "RAIN", "LIGHT", cyan, 1, 2, 2),
-        Btn(21, "LOOK", "LEFT", yellow, 1, 3, 0),
-        Btn(23, "LOOK", "BACK", yellow, 1, 3, 1, colSpan = 2),
-        Btn(22, "LOOK", "RIGHT", yellow, 1, 3, 3),
-    )
+    private fun saveLayout() {
+        prefs.layoutJson = layout.toJson()
+        prefs.save()
+    }
 
     // ------------------------------------------------------------------ hit targets
-    private enum class Kind { BRAKE, THROTTLE, PADDLE_UP, PADDLE_DOWN, BUTTON, CENTER, LOCK, TAB0, TAB1, SETUP, STEERBAR }
-    private class Target(val kind: Kind, val btn: Btn? = null)
+    private enum class Kind { BRAKE, THROTTLE, PADDLE_UP, PADDLE_DOWN, BUTTON, AXIS, CENTER, LOCK, PAGE, SETUP, STEERBAR,
+        E_PREV, E_NEXT, E_OPTIONS, E_DONE, E_TILE, E_EMPTY }
+    private class Target(val kind: Kind, val tile: Tile? = null, val row: Int = 0, val col: Int = 0)
 
     private val rBrake = RectF()
     private val rThrottle = RectF()
@@ -100,8 +75,10 @@ class WheelView(
     private val rPadDown = RectF()
     private val rCenterBtn = RectF()
     private val rLock = RectF()
-    private val rTab0 = RectF()
-    private val rTab1 = RectF()
+    private val rPage = RectF()
+    private val rGrid = RectF()
+    private var cellW = 0f
+    private var cellH = 0f
     private val rSetup = RectF()
     private val rSteerBar = RectF()
     private val rDash = RectF()
@@ -157,53 +134,69 @@ class WheelView(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         val pad = 6 * dp
         val gap = 6 * dp
-        val pedalW = max(84 * dp, w * 0.14f)
-        val paddleW = max(58 * dp, w * 0.09f)
-        var x = pad
-        rBrake.set(x, pad, x + pedalW, h - pad); x += pedalW + gap
-        rPadUp.set(x, pad, x + paddleW, h - pad)
-        x = w - pad
-        rThrottle.set(x - pedalW, pad, x, h - pad); x -= pedalW + gap
-        rPadDown.set(x - paddleW, pad, x, h - pad)
-
-        val cl = rPadUp.right + gap
-        val cr = rPadDown.left - gap
-        // top bar: CENTER | LOCK | DRIVE MFD | SETUP  (right to left)
+        val lay = layout
+        var cl: Float
+        var cr: Float
+        if (boxMode) {
+            // second device: no pedals or paddles, just dashboard + buttons
+            rBrake.setEmpty(); rThrottle.setEmpty(); rPadUp.setEmpty(); rPadDown.setEmpty()
+            cl = pad; cr = w - pad
+        } else {
+            val pedalW = max(70 * dp, w * lay.pedalPct / 100f)
+            val paddleW = max(44 * dp, w * lay.paddlePct / 100f)
+            var x = pad
+            rBrake.set(x, pad, x + pedalW, h - pad); x += pedalW + gap
+            val leftPaddle = RectF(x, pad, x + paddleW, h - pad)
+            x = w - pad
+            rThrottle.set(x - pedalW, pad, x, h - pad); x -= pedalW + gap
+            val rightPaddle = RectF(x - paddleW, pad, x, h - pad)
+            if (lay.swapPaddles) { rPadUp.set(rightPaddle); rPadDown.set(leftPaddle) } else { rPadUp.set(leftPaddle); rPadDown.set(rightPaddle) }
+            cl = leftPaddle.right + gap
+            cr = rightPaddle.left - gap
+        }
+        // top bar: CENTER | LOCK | PAGE | SETUP   (edit mode: ◀ | PAGE | ▶ | OPTIONS | DONE)
         val tbH = 36 * dp
         val tg = 5 * dp
-        val unit = min(64 * dp, (cr - cl - 4 * tg) / 5.2f)
+        val unit = min(70 * dp, (cr - cl - 4 * tg) / 5.2f)
         var r = cr
         rSetup.set(r - unit, pad, r, pad + tbH); r -= unit + tg
-        rTab1.set(r - unit, pad, r, pad + tbH); r -= unit
-        rTab0.set(r - unit, pad, r, pad + tbH); r -= unit + tg
-        rLock.set(r - unit, pad, r, pad + tbH); r -= unit + tg
-        rCenterBtn.set(cl, pad, r, pad + tbH)
+        rPage.set(r - unit * 1.4f, pad, r, pad + tbH); r -= unit * 1.4f + tg
+        if (boxMode) { rLock.setEmpty(); rCenterBtn.set(cl, pad, r, pad + tbH) }
+        else { rLock.set(r - unit, pad, r, pad + tbH); r -= unit + tg; rCenterBtn.set(cl, pad, r, pad + tbH) }
 
         var y = pad + tbH + 5 * dp
         if (prefs.showDash) {
-            val dashH = (h * 0.25f).coerceIn(76 * dp, 120 * dp)
+            val pct = if (boxMode) lay.dashPct * 1.5f else lay.dashPct
+            val dashH = (h * pct / 100f).coerceIn(70 * dp, h * 0.6f)
             rDash.set(cl, y, cr, y + dashH)
             y += dashH + 5 * dp
         } else {
             rDash.setEmpty()
         }
-        rSteerBar.set(cl, y, cr, y + 22 * dp)
+        if (boxMode) rSteerBar.set(cl, y, cr, y + 22 * dp) else rSteerBar.set(cl, y, cr, y + 22 * dp)
 
         val gTop = rSteerBar.bottom + gap
         layoutW = w; layoutH = h
         val gBottom = h - pad
-        val cw = (cr - cl - 3 * gap) / 4f
-        val ch = (gBottom - gTop - 3 * gap) / 4f
-        for (b in buttons) {
-            val l = cl + b.col * (cw + gap)
-            val t = gTop + b.row * (ch + gap)
-            b.rect.set(l, t, l + b.colSpan * cw + (b.colSpan - 1) * gap, t + b.rowSpan * ch + (b.rowSpan - 1) * gap)
+        rGrid.set(cl, gTop, cr, gBottom)
+        cellW = (cr - cl - (lay.cols - 1) * gap) / lay.cols
+        cellH = (gBottom - gTop - (lay.rows - 1) * gap) / lay.rows
+        val list = ArrayList<Tile>()
+        lay.pages.forEachIndexed { pi, pg ->
+            for (it in pg.items) {
+                val t = Tile(it, pi)
+                val l = cl + it.col * (cellW + gap)
+                val tp = gTop + it.row * (cellH + gap)
+                t.rect.set(l, tp, l + it.cs * cellW + (it.cs - 1) * gap, tp + it.rs * cellH + (it.rs - 1) * gap)
+                list.add(t)
+            }
         }
+        tiles = list
 
         bgShader = LinearGradient(0f, 0f, 8 * dp, 8 * dp, 0xFF121519.toInt(), 0xFF0D0F12.toInt(), Shader.TileMode.MIRROR)
 
         // stop Android's edge back-gesture from stealing the pedals (system caps this at 200dp per edge)
-        if (Build.VERSION.SDK_INT >= 29) {
+        if (Build.VERSION.SDK_INT >= 29 && !boxMode) {
             val cy = h / 2
             val half = (100 * dp).toInt()
             systemGestureExclusionRects = listOf(
@@ -224,22 +217,183 @@ class WheelView(
 
     // ------------------------------------------------------------------ touch
     private fun hitTest(x: Float, y: Float): Target? {
+        if (editing) return editHitTest(x, y)
         if (rBrake.contains(x, y)) return Target(Kind.BRAKE)
         if (rThrottle.contains(x, y)) return Target(Kind.THROTTLE)
         if (rPadUp.contains(x, y)) return Target(Kind.PADDLE_UP)
         if (rPadDown.contains(x, y)) return Target(Kind.PADDLE_DOWN)
-        if (rCenterBtn.contains(x, y)) return Target(Kind.CENTER)
+        if (!boxMode && rCenterBtn.contains(x, y)) return Target(Kind.CENTER)
         if (rLock.contains(x, y)) return Target(Kind.LOCK)
-        if (rTab0.contains(x, y)) return Target(Kind.TAB0)
-        if (rTab1.contains(x, y)) return Target(Kind.TAB1)
+        if (rPage.contains(x, y)) return Target(Kind.PAGE)
         if (rSetup.contains(x, y)) return Target(Kind.SETUP)
-        if (rSteerBar.contains(x, y)) return Target(Kind.STEERBAR)
-        for (b in buttons) if (b.page == page && b.rect.contains(x, y)) return Target(Kind.BUTTON, b)
+        if (!boxMode && rSteerBar.contains(x, y)) return Target(Kind.STEERBAR)
+        for (t in tiles) if (t.pageIdx == page && t.rect.contains(x, y)) {
+            return Target(if (t.item.type == LItem.TYPE_BUTTON) Kind.BUTTON else Kind.AXIS, t)
+        }
         return null
+    }
+
+    // ------------------------------------------------------------------ layout editor
+    var editing = false
+        private set
+    var onEditTile: (page: LPage, item: LItem, isNew: Boolean) -> Unit = { _, _, _ -> }
+    var onEditOptions: () -> Unit = {}
+    var onEditDone: () -> Unit = {}
+    private var dragTile: Tile? = null
+    private var dragDX = 0f
+    private var dragDY = 0f
+    private var dragX = 0f
+    private var dragY = 0f
+    private var dragMoved = false
+    private var dragStartX = 0f
+    private var dragStartY = 0f
+
+    fun startEditing() {
+        releaseAll()
+        editing = true
+        requestFrame()
+    }
+
+    fun stopEditing() {
+        editing = false
+        dragTile = null
+        saveLayout()
+        relayout()
+    }
+
+    fun setPage(i: Int) { page = i.coerceIn(0, layout.pages.size - 1); requestFrame() }
+
+    /** Called after a tile was edited / added / deleted from the dialog. */
+    fun layoutChanged() {
+        saveLayout()
+        relayout()
+    }
+
+    private fun editHitTest(x: Float, y: Float): Target? {
+        if (rCenterBtn.contains(x, y) || rLock.contains(x, y)) {
+            // left part of the top bar: ◀ prev page  /  ▶ next page
+            val mid = (rCenterBtn.left + (if (rLock.isEmpty) rCenterBtn.right else rLock.right)) / 2
+            return Target(if (x < mid) Kind.E_PREV else Kind.E_NEXT)
+        }
+        if (rPage.contains(x, y)) return Target(Kind.E_OPTIONS)
+        if (rSetup.contains(x, y)) return Target(Kind.E_DONE)
+        for (t in tiles) if (t.pageIdx == page && t.rect.contains(x, y)) return Target(Kind.E_TILE, t)
+        if (rGrid.contains(x, y)) {
+            val gap = 6 * dp
+            val col = ((x - rGrid.left) / (cellW + gap)).toInt().coerceIn(0, layout.cols - 1)
+            val row = ((y - rGrid.top) / (cellH + gap)).toInt().coerceIn(0, layout.rows - 1)
+            return Target(Kind.E_EMPTY, row = row, col = col)
+        }
+        return null
+    }
+
+    private fun editTouch(ev: MotionEvent): Boolean {
+        val x = ev.x
+        val y = ev.y
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                val t = editHitTest(x, y) ?: return true
+                when (t.kind) {
+                    Kind.E_PREV -> { setPage((page - 1 + layout.pages.size) % layout.pages.size); onHaptic(10) }
+                    Kind.E_NEXT -> { setPage((page + 1) % layout.pages.size); onHaptic(10) }
+                    Kind.E_OPTIONS -> onEditOptions()
+                    Kind.E_DONE -> { stopEditing(); onEditDone() }
+                    Kind.E_TILE -> {
+                        dragTile = t.tile; dragMoved = false
+                        dragStartX = x; dragStartY = y; dragX = x; dragY = y
+                        dragDX = x - t.tile!!.rect.left; dragDY = y - t.tile.rect.top
+                    }
+                    Kind.E_EMPTY -> {
+                        val pg = layout.pages[page]
+                        val it = Catalog.item(3, t.row, t.col)
+                        onEditTile(pg, it, true)
+                    }
+                    else -> {}
+                }
+            }
+            MotionEvent.ACTION_MOVE -> dragTile?.let {
+                dragX = x; dragY = y
+                if (kotlin.math.hypot(x - dragStartX, y - dragStartY) > 12 * dp) dragMoved = true
+                requestFrame()
+            }
+            MotionEvent.ACTION_UP -> {
+                val d = dragTile ?: return true
+                dragTile = null
+                val pg = layout.pages[page]
+                if (!dragMoved) {
+                    onEditTile(pg, d.item, false)
+                } else {
+                    // snap: target cell under the tile's top-left corner
+                    val gap = 6 * dp
+                    val left = x - dragDX + cellW / 2
+                    val top = y - dragDY + cellH / 2
+                    val col = ((left - rGrid.left) / (cellW + gap)).toInt().coerceIn(0, layout.cols - d.item.cs)
+                    val row = ((top - rGrid.top) / (cellH + gap)).toInt().coerceIn(0, layout.rows - d.item.rs)
+                    val it = d.item
+                    if (layout.fits(pg, row, col, it.rs, it.cs, it)) {
+                        it.row = row; it.col = col
+                    } else {
+                        // swap with the tile that's there, if each fits in the other's place
+                        val other = layout.itemAt(pg, row, col)
+                        if (other != null && other !== it) {
+                            val or = other.row; val oc = other.col
+                            other.row = it.row; other.col = it.col
+                            val r0 = it.row; val c0 = it.col
+                            it.row = or; it.col = oc
+                            if (!layout.fits(pg, it.row, it.col, it.rs, it.cs, it) || !layout.fits(pg, other.row, other.col, other.rs, other.cs, other)) {
+                                other.row = or; other.col = oc; it.row = r0; it.col = c0   // didn't fit: undo
+                            }
+                        }
+                    }
+                    onHaptic(15)
+                    layoutChanged()
+                }
+                requestFrame()
+            }
+            MotionEvent.ACTION_CANCEL -> { dragTile = null; requestFrame() }
+        }
+        return true
+    }
+
+    private fun drawEditOverlay(c: Canvas) {
+        // empty cells
+        val gap = 6 * dp
+        stroke.color = 0x55FFFFFF
+        stroke.pathEffect = android.graphics.DashPathEffect(floatArrayOf(6 * dp, 5 * dp), 0f)
+        val pg = layout.pages[page]
+        for (r in 0 until layout.rows) for (k in 0 until layout.cols) {
+            if (layout.itemAt(pg, r, k) != null) continue
+            val l = rGrid.left + k * (cellW + gap)
+            val t = rGrid.top + r * (cellH + gap)
+            tmp.set(l, t, l + cellW, t + cellH)
+            c.drawRoundRect(tmp, 10 * dp, 10 * dp, stroke)
+            text.color = 0x66FFFFFF; text.textSize = 22 * dp
+            c.drawText("+", tmp.centerX(), tmp.centerY() + 8 * dp, text)
+        }
+        stroke.pathEffect = null
+        // dragged tile follows the finger
+        dragTile?.let { d ->
+            if (dragMoved) {
+                val w = d.rect.width(); val h = d.rect.height()
+                tmp.set(dragX - dragDX, dragY - dragDY, dragX - dragDX + w, dragY - dragDY + h)
+                fill.color = 0xCC2A2F37.toInt()
+                c.drawRoundRect(tmp, 10 * dp, 10 * dp, fill)
+                stroke.color = yellow; stroke.strokeWidth = 3 * dp
+                c.drawRoundRect(tmp, 10 * dp, 10 * dp, stroke)
+                stroke.strokeWidth = 1 * dp
+                text.color = Color.WHITE; text.textSize = 16 * dp
+                c.drawText(d.item.label, tmp.centerX(), tmp.centerY() + 6 * dp, text)
+            }
+        }
+        // hint
+        text.textSize = 12 * dp; text.color = yellow; text.typeface = condensed
+        c.drawText("EDITING: drag to move/swap · tap a tile to edit · tap + to add", rSteerBar.centerX(), rSteerBar.centerY() + 4 * dp, text)
+        text.typeface = condensedBold
     }
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onTouchEvent(ev: MotionEvent): Boolean {
+        if (editing) return editTouch(ev)
         val action = ev.actionMasked
         when (action) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -262,6 +416,7 @@ class WheelView(
                         Kind.BRAKE -> if (id == brakeOwner) { st.brkIn = brakeValue(ev.getY(i), ev.getTouchMajor(i)); changed() }
                         Kind.THROTTLE -> if (id == throttleOwner) { st.thr = pedalValue(rThrottle, ev.getY(i), throttleOriginY, prefs.thrCurve); changed() }
                         Kind.STEERBAR -> if (id == steerOwner) setManualSteer(ev.getX(i))
+                        Kind.AXIS -> setAxis(t.tile!!, ev.getY(i))
                         else -> {}
                     }
                 }
@@ -304,7 +459,7 @@ class WheelView(
             when (t.kind) {
                 Kind.PADDLE_UP -> held = held or 1
                 Kind.PADDLE_DOWN -> held = held or 2
-                Kind.BUTTON -> { val n = t.btn!!.num; if (!isLatch(n)) held = held or (1 shl (n - 1)) }
+                Kind.BUTTON -> { val n = t.tile!!.item.num; if (!isLatch(n)) held = held or (1 shl (n - 1)) }
                 else -> {}
             }
         }
@@ -318,13 +473,14 @@ class WheelView(
             Kind.THROTTLE -> { throttleOwner = id; throttleOriginY = y; st.thr = pedalValue(rThrottle, y, y, prefs.thrCurve); changed() }
             Kind.PADDLE_UP -> pressButton(1, 25)
             Kind.PADDLE_DOWN -> pressButton(2, 25)
-            Kind.BUTTON -> pressButton(t.btn!!.num, 15)
+            Kind.BUTTON -> pressButton(t.tile!!.item.num, 15)
+            Kind.AXIS -> { setAxis(t.tile!!, y); onHaptic(10) }
             Kind.CENTER -> { onCenter(); onHaptic(30) }
             Kind.LOCK -> { locked = !locked; onHaptic(20); onCenterLockChanged() }
-            Kind.TAB0 -> { page = 0; onHaptic(10); invalidate() }
-            Kind.TAB1 -> { page = 1; onHaptic(10); invalidate() }
+            Kind.PAGE -> { page = (page + 1) % layout.pages.size; onHaptic(10); requestFrame() }
             Kind.SETUP -> { releaseAll(); onSettings() }
             Kind.STEERBAR -> { steerOwner = id; setManualSteer(x) }
+            else -> {}
         }
     }
 
@@ -334,7 +490,8 @@ class WheelView(
             Kind.THROTTLE -> if (id == throttleOwner) { throttleOwner = -1; st.thr = 0f; changed() }
             Kind.PADDLE_UP -> releaseButton(1)
             Kind.PADDLE_DOWN -> releaseButton(2)
-            Kind.BUTTON -> releaseButton(t.btn!!.num)
+            Kind.BUTTON -> releaseButton(t.tile!!.item.num)
+            Kind.AXIS -> { if (t.tile!!.item.type == LItem.TYPE_CLUTCH) st.clutch = 0f else st.hbrake = 0f; changed() }
             Kind.STEERBAR -> if (id == steerOwner) { steerOwner = -1; manualSteer = null; onCenterLockChanged() }
             else -> {}
         }
@@ -345,7 +502,7 @@ class WheelView(
         brakeOwner = -1; throttleOwner = -1; steerOwner = -1
         manualSteer = null
         latchMask = 0
-        st.thr = 0f; st.brkIn = 0f; st.brk = 0f; st.mask = 0
+        st.thr = 0f; st.brkIn = 0f; st.brk = 0f; st.mask = 0; st.clutch = 0f; st.hbrake = 0f
         changed()
     }
 
@@ -367,6 +524,14 @@ class WheelView(
 
     private fun releaseButton(@Suppress("UNUSED_PARAMETER") num: Int) {
         // nothing to do: the mask is rebuilt from the fingers still on the screen
+    }
+
+    /** Clutch / handbrake tile: slide up inside the tile for more. */
+    private fun setAxis(t: Tile, y: Float) {
+        val r = t.rect
+        val v = ((r.bottom - y) / r.height() * 1.15f - 0.05f).coerceIn(0f, 1f)
+        if (t.item.type == LItem.TYPE_CLUTCH) st.clutch = v else st.hbrake = v
+        changed()
     }
 
     private fun pedalValue(r: RectF, y: Float, originY: Float, curve: Float): Float =
@@ -445,20 +610,34 @@ class WheelView(
         c.drawRect(0f, 0f, width.toFloat(), height.toFloat(), fill)
         fill.shader = null
 
-        drawPedal(c, rBrake, st.brk, "BRAKE", red, -90f)
-        if (prefs.brakeTrace) drawBrakeTrace(c)
-        drawPedal(c, rThrottle, st.thr, "THROTTLE", green, 90f)
-        drawPaddle(c, rPadUp, "▲", "UP", st.mask and 1 != 0)
-        drawPaddle(c, rPadDown, "▼", "DOWN", st.mask and 2 != 0)
-
-        drawTopButton(c, rCenterBtn, "CENTER", false)
-        drawTopButton(c, rLock, "LOCK", locked, yellow)
-        drawTopButton(c, rTab0, "DRIVE", page == 0, 0xFF3A414B.toInt(), Color.WHITE)
-        drawTopButton(c, rTab1, "MFD", page == 1, 0xFF3A414B.toInt(), Color.WHITE)
-        drawTopButton(c, rSetup, "SETUP", false)
+        if (!boxMode) {
+            drawPedal(c, rBrake, st.brk, "BRAKE", red, -90f)
+            if (prefs.brakeTrace) drawBrakeTrace(c)
+            drawPedal(c, rThrottle, st.thr, "THROTTLE", green, 90f)
+            drawPaddle(c, rPadUp, "▲", "UP", st.mask and 1 != 0)
+            drawPaddle(c, rPadDown, "▼", "DOWN", st.mask and 2 != 0)
+        }
+        val pageName = layout.pages.getOrNull(page)?.name ?: ""
+        val pageLabel = if (layout.pages.size > 1) "$pageName ▸" else pageName
+        if (editing) {
+            if (rLock.isEmpty) {
+                drawTopButton(c, rCenterBtn, "◀   PAGE   ▶", false)
+            } else {
+                tmp2.set(rCenterBtn.left, rCenterBtn.top, rLock.right, rCenterBtn.bottom)
+                drawTopButton(c, tmp2, "◀   PAGE ${page + 1}/${layout.pages.size}   ▶", false)
+            }
+            drawTopButton(c, rPage, "OPTIONS", false)
+            drawTopButton(c, rSetup, "DONE", true, green)
+        } else {
+            if (!boxMode) drawTopButton(c, rCenterBtn, "CENTER", false) else drawTopButton(c, rCenterBtn, "BUTTON BOX", false)
+            if (!rLock.isEmpty) drawTopButton(c, rLock, "LOCK", locked, yellow)
+            drawTopButton(c, rPage, pageLabel, false, 0xFF3A414B.toInt(), Color.WHITE)
+            drawTopButton(c, rSetup, "SETUP", false)
+        }
         drawSteerBar(c)
 
-        for (b in buttons) if (b.page == page) drawButton(c, b)
+        for (t in tiles) if (t.pageIdx == page && t !== dragTile.takeIf { dragMoved }) drawTile(c, t)
+        if (editing) drawEditOverlay(c)
         if (!rDash.isEmpty) drawDash(c)
         drawFlashes(c)
         if (st.bindAxis != 0) drawBindBanner(c)
@@ -801,7 +980,7 @@ class WheelView(
     }
 
     private fun drawBindBanner(c: Canvas) {
-        val name = when (st.bindAxis) { 1 -> "STEERING"; 2 -> "THROTTLE"; else -> "BRAKE" }
+        val name = when (st.bindAxis) { 1 -> "STEERING"; 2 -> "THROTTLE"; 3 -> "BRAKE"; 4 -> "CLUTCH"; else -> "HANDBRAKE" }
         val w = width.toFloat()
         tmp.set(w * 0.25f, height * 0.4f, w * 0.75f, height * 0.6f)
         fill.color = 0xEE000000.toInt()
@@ -920,8 +1099,34 @@ class WheelView(
         text.textAlign = Paint.Align.CENTER
     }
 
-    private fun drawButton(c: Canvas, b: Btn) {
-        val r = b.rect
+    private val tmp2 = RectF()
+
+    private fun drawTile(c: Canvas, t: Tile) {
+        val it = t.item
+        if (it.type == LItem.TYPE_BUTTON) { drawButton(c, t); return }
+        // analog lever tile (clutch / handbrake): fills from the bottom like a pedal
+        val r = t.rect
+        val v = if (it.type == LItem.TYPE_CLUTCH) st.clutch else st.hbrake
+        val rad = 10 * dp
+        fill.color = 0xFF14181D.toInt()
+        c.drawRoundRect(r, rad, rad, fill)
+        if (v > 0f) {
+            c.save(); c.clipRect(r.left, r.bottom - r.height() * v, r.right, r.bottom)
+            fill.color = it.color; c.drawRoundRect(r, rad, rad, fill); c.restore()
+        }
+        stroke.color = it.color
+        c.drawRoundRect(r, rad, rad, stroke)
+        text.textSize = min(16 * dp, r.width() / 6f).coerceAtLeast(10 * dp)
+        text.color = Color.WHITE
+        c.drawText(it.label, r.centerX(), r.centerY(), text)
+        text.typeface = condensed; text.textSize *= 0.7f; text.color = 0xFF8A94A3.toInt()
+        c.drawText(if (v > 0f) "${(v * 100).roundToInt()}%" else it.sub, r.centerX(), r.centerY() + text.textSize * 1.6f, text)
+        text.typeface = condensedBold
+    }
+
+    private fun drawButton(c: Canvas, tile: Tile) {
+        val b = tile.item
+        val r = tile.rect
         val on = st.mask and (1 shl (b.num - 1)) != 0
         val rad = 10 * dp
         fill.color = if (on) b.color else 0xFF1C2026.toInt()
@@ -952,7 +1157,7 @@ class WheelView(
             text.letterSpacing = 0f
             text.typeface = condensedBold
         }
-        if (prefs.showNums) {
+        if (prefs.showNums || editing) {
             text.textSize = 10 * dp
             text.color = 0x66FFFFFF
             text.textAlign = Paint.Align.RIGHT

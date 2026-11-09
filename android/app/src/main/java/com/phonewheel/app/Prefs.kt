@@ -2,9 +2,21 @@ package com.phonewheel.app
 
 import android.content.Context
 
-/** All user settings, stored in SharedPreferences. */
-class Prefs(ctx: Context) {
-    private val sp = ctx.getSharedPreferences("phonewheel", Context.MODE_PRIVATE)
+/**
+ * All user settings. Connection + device role are global; everything else (tuning, feedback,
+ * layout) belongs to the active *profile*, and profiles can switch automatically per game / car.
+ */
+class Prefs(private val ctx: Context) {
+    private val global = ctx.getSharedPreferences("phonewheel_global", Context.MODE_PRIVATE)
+    var profileFile: String = global.getString("activeFile", DEFAULT_FILE) ?: DEFAULT_FILE
+        private set
+    private var sp = ctx.getSharedPreferences(profileFile, Context.MODE_PRIVATE)
+
+    // device role (global)
+    var role = ROLE_WHEEL
+
+    // layout (per profile, JSON; empty = standard layout)
+    var layoutJson = ""
 
     // connection
     var mode = MODE_AUTO
@@ -83,8 +95,11 @@ class Prefs(ctx: Context) {
     init { load() }
 
     fun load() {
-        mode = sp.getInt("mode", MODE_AUTO)
-        manualIp = sp.getString("manualIp", "") ?: ""
+        // connection: global (falls back to the old per-file values from earlier versions)
+        mode = global.getInt("mode", sp.getInt("mode", MODE_AUTO))
+        manualIp = global.getString("manualIp", null) ?: (sp.getString("manualIp", "") ?: "")
+        role = global.getInt("role", ROLE_WHEEL)
+        layoutJson = sp.getString("layout", "") ?: ""
         range = sp.getFloat("range", 90f)
         deadzone = sp.getFloat("deadzone", 0.5f)
         smoothing = sp.getFloat("smoothing", 0.2f)
@@ -140,9 +155,9 @@ class Prefs(ctx: Context) {
     }
 
     fun save() {
+        global.edit().putInt("mode", mode).putString("manualIp", manualIp).putInt("role", role).apply()
         sp.edit()
-            .putInt("mode", mode)
-            .putString("manualIp", manualIp)
+            .putString("layout", layoutJson)
             .putFloat("range", range)
             .putFloat("deadzone", deadzone)
             .putFloat("smoothing", smoothing)
@@ -200,15 +215,80 @@ class Prefs(ctx: Context) {
 
     fun coachCfgLine() = "cfg,${if (coachMarkers) 1 else 0},${markerLead.toInt()},${if (coachMessages) 1 else 0}"
 
-    /** Restores defaults but keeps the connection settings. */
+    /** Restores default tuning in this profile (keeps the layout and connection settings). */
     fun resetTuning() {
-        val m = mode
-        val ip = manualIp
+        val lay = layoutJson
         sp.edit().clear().apply()
         load()
-        mode = m
-        manualIp = ip
+        layoutJson = lay
         save()
+    }
+
+    // ------------------------------------------------------------------ profiles
+    data class Profile(val file: String, var name: String, var game: String, var car: String)
+
+    fun profiles(): MutableList<Profile> {
+        val out = ArrayList<Profile>()
+        try {
+            val a = org.json.JSONArray(global.getString("profiles", "[]"))
+            for (i in 0 until a.length()) {
+                val o = a.getJSONObject(i)
+                out.add(Profile(o.getString("file"), o.optString("name", "Profile"), o.optString("game", ""), o.optString("car", "")))
+            }
+        } catch (_: Exception) {}
+        if (out.none { it.file == DEFAULT_FILE }) out.add(0, Profile(DEFAULT_FILE, "Default", "", ""))
+        return out
+    }
+
+    private fun storeProfiles(list: List<Profile>) {
+        val a = org.json.JSONArray()
+        for (p in list) a.put(org.json.JSONObject().put("file", p.file).put("name", p.name).put("game", p.game).put("car", p.car))
+        global.edit().putString("profiles", a.toString()).apply()
+    }
+
+    fun activeProfile(): Profile = profiles().firstOrNull { it.file == profileFile } ?: Profile(DEFAULT_FILE, "Default", "", "")
+
+    fun switchTo(file: String) {
+        if (file == profileFile) return
+        save()
+        profileFile = file
+        global.edit().putString("activeFile", file).apply()
+        sp = ctx.getSharedPreferences(file, Context.MODE_PRIVATE)
+        load()
+    }
+
+    /** New profile starting as a copy of the current one; becomes active. */
+    fun createProfile(name: String): Profile {
+        save()
+        val file = "pw_profile_" + System.currentTimeMillis()
+        val dst = ctx.getSharedPreferences(file, Context.MODE_PRIVATE).edit()
+        for ((k, v) in sp.all) when (v) {
+            is Int -> dst.putInt(k, v); is Float -> dst.putFloat(k, v); is Boolean -> dst.putBoolean(k, v)
+            is String -> dst.putString(k, v); is Long -> dst.putLong(k, v)
+        }
+        dst.commit()
+        val p = Profile(file, name, "", "")
+        storeProfiles(profiles() + p)
+        switchTo(file)
+        return p
+    }
+
+    fun updateProfile(p: Profile) {
+        storeProfiles(profiles().map { if (it.file == p.file) p else it })
+    }
+
+    fun deleteProfile(file: String) {
+        if (file == DEFAULT_FILE) return
+        storeProfiles(profiles().filter { it.file != file })
+        if (profileFile == file) switchTo(DEFAULT_FILE)
+        ctx.getSharedPreferences(file, Context.MODE_PRIVATE).edit().clear().apply()
+    }
+
+    /** Best profile for this game/car: one linked to the car, else the game, else Default. */
+    fun profileFor(game: String, car: String): Profile? {
+        val list = profiles()
+        return list.firstOrNull { it.car.isNotEmpty() && it.car == car }
+            ?: list.firstOrNull { it.car.isEmpty() && it.game.isNotEmpty() && it.game == game }
     }
 
     companion object {
@@ -216,6 +296,9 @@ class Prefs(ctx: Context) {
         const val MODE_USB = 1     // USB cable via adb reverse
         const val MODE_MANUAL = 2  // WiFi, typed PC address
         const val PORT = 8767
+        const val DEFAULT_FILE = "phonewheel"
+        const val ROLE_WHEEL = 0
+        const val ROLE_BOX = 1      // second device: buttons + dashboard only
         const val PRESET_ESSENTIAL = 0  // only actionable feedback, one effect at a time
         const val PRESET_IMMERSIVE = 1  // everything, layered
         const val PRESET_OFF = 2        // no game effects (button clicks still work)

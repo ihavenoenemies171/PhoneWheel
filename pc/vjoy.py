@@ -183,6 +183,8 @@ class VJoyDevice:
         self.button_count = d.GetVJDButtonNumber(device_id)
         self.missing_axes = [name for name, a in (("X", AXIS_X), ("Y", AXIS_Y), ("Z", AXIS_Z))
                              if not d.GetVJDAxisExist(device_id, a)]
+        self.missing_extra = [name for name, a in (("Rx", AXIS_RX), ("Ry", AXIS_RY))
+                              if not d.GetVJDAxisExist(device_id, a)]
         self._axes = {}
         self._buttons = 0
 
@@ -216,6 +218,7 @@ class DummyDevice:
     """Used when vJoy is unavailable, so the phone UI can still be tested."""
     button_count = 32
     missing_axes = []
+    missing_extra = []
     dll_path = "(dry run - no vJoy)"
 
     def set_axis(self, axis, norm):

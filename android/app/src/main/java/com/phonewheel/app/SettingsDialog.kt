@@ -29,6 +29,10 @@ object SettingsDialog {
         val vibrationInfo: String,
         val openReport: () -> Unit,
         val openDiag: () -> Unit,
+        val editLayout: () -> Unit,
+        val profileChanged: () -> Unit,
+        val currentGame: String,
+        val currentCar: String,
     )
 
     fun show(act: Activity, p: Prefs, actions: Actions, onDone: () -> Unit) {
@@ -117,6 +121,71 @@ object SettingsDialog {
         fun f1(v: Float) = String.format(Locale.US, "%.1f", v)
         fun f2(v: Float) = String.format(Locale.US, "%.2f", v)
 
+        // ---------------------------------------------------------- profile
+        val prof = p.activeProfile()
+        header("PROFILE")
+        val linkText = when {
+            prof.car.isNotEmpty() -> "used automatically for the car ${prof.car}"
+            prof.game.isNotEmpty() -> "used automatically in ${prof.game}"
+            else -> "not linked to a game or car"
+        }
+        root.addView(TextView(act).apply {
+            text = "${prof.name}  ·  $linkText"; setTextColor(Color.WHITE); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+        })
+        hint("A profile holds all settings below plus your button layout. Link one to a game or car and the " +
+             "app switches to it automatically when that game/car is detected.")
+        fun ask(title: String, initial: String, done: (String) -> Unit) {
+            val box = EditText(act).apply { setText(initial); setTextColor(Color.WHITE); isSingleLine = true }
+            AlertDialog.Builder(act, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle(title).setView(box)
+                .setPositiveButton("OK") { _, _ -> val t = box.text.toString().trim(); if (t.isNotEmpty()) done(t) }
+                .setNegativeButton("Cancel", null).show()
+        }
+        buttonRow(
+            "Switch…" to {
+                val list = p.profiles()
+                AlertDialog.Builder(act, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Switch profile")
+                    .setItems(list.map { it.name + (if (it.file == p.profileFile) "  ✓" else "") }.toTypedArray()) { _, i ->
+                        p.switchTo(list[i].file); dialog?.dismiss(); actions.profileChanged()
+                    }.show()
+            },
+            "New…" to { ask("New profile (copy of this one)", "") { n -> p.createProfile(n); dialog?.dismiss(); actions.profileChanged() } },
+            "Rename…" to { ask("Rename profile", prof.name) { n -> p.updateProfile(prof.copy(name = n)); dialog?.dismiss(); actions.profileChanged() } },
+        )
+        buttonRow(
+            "Link to game / car…" to {
+                val opts = ArrayList<String>(); val acts = ArrayList<() -> Unit>()
+                opts.add("Not linked"); acts.add { p.updateProfile(prof.copy(game = "", car = "")) }
+                if (actions.currentGame.isNotEmpty()) { opts.add("This game: ${actions.currentGame}"); acts.add { p.updateProfile(prof.copy(game = actions.currentGame, car = "")) } }
+                if (actions.currentCar.isNotEmpty()) { opts.add("This car: ${actions.currentCar}"); acts.add { p.updateProfile(prof.copy(game = actions.currentGame, car = actions.currentCar)) } }
+                AlertDialog.Builder(act, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                    .setTitle(if (opts.size == 1) "Start a game to link it" else "Use '${prof.name}' automatically for…")
+                    .setItems(opts.toTypedArray()) { _, i -> acts[i](); dialog?.dismiss(); actions.profileChanged() }.show()
+            },
+            "Delete" to {
+                if (prof.file == Prefs.DEFAULT_FILE) android.widget.Toast.makeText(act, "The Default profile can't be deleted", android.widget.Toast.LENGTH_SHORT).show()
+                else AlertDialog.Builder(act, android.R.style.Theme_DeviceDefault_Dialog_Alert).setTitle("Delete '${prof.name}'?")
+                    .setPositiveButton("Delete") { _, _ -> p.deleteProfile(prof.file); dialog?.dismiss(); actions.profileChanged() }
+                    .setNegativeButton("Cancel", null).show()
+            },
+        )
+
+        // ---------------------------------------------------------- layout & role
+        header("LAYOUT")
+        buttonRow("Edit button layout" to { dialog?.dismiss(); actions.editLayout() })
+        hint("Move, resize, recolour and rename buttons, add pages, add analog CLUTCH / HANDBRAKE levers, " +
+             "change pedal and paddle widths. Saved in this profile.")
+        val roleGroup = RadioGroup(act)
+        val roleIds = IntArray(2)
+        listOf("This phone is the wheel", "Second device: button box + dashboard (no steering/pedals)").forEachIndexed { i, l ->
+            val rb = RadioButton(act).apply { id = View.generateViewId(); text = l; setTextColor(Color.WHITE); textSize = 14f }
+            roleIds[i] = rb.id; roleGroup.addView(rb)
+        }
+        roleGroup.check(roleIds[p.role.coerceIn(0, 1)])
+        roleGroup.setOnCheckedChangeListener { _, c -> p.role = roleIds.indexOf(c).coerceAtLeast(0) }
+        root.addView(roleGroup)
+        hint("Use an old phone or tablet as an extra button box / big dashboard next to your screen. Its buttons are " +
+             "combined with the wheel's; both get vibration and dashboard data.")
+
         // ---------------------------------------------------------- connection
         header("CONNECTION")
         val ipBox = EditText(act).apply {
@@ -162,6 +231,8 @@ object SettingsDialog {
              "For buttons, just press the button on the wheel.")
         fun bind(axis: Int) { actions.bind(axis); dialog?.dismiss() }
         buttonRow("Steering" to { bind(1) }, "Throttle" to { bind(2) }, "Brake" to { bind(3) })
+        buttonRow("Clutch" to { bind(4) }, "Handbrake" to { bind(5) })
+        hint("Clutch and handbrake are vJoy axes Rx and Ry (enable them in Configure vJoy). Add their levers in Edit button layout.")
 
         // ---------------------------------------------------------- vibration
         header("VIBRATION (FORCE FEEDBACK)")

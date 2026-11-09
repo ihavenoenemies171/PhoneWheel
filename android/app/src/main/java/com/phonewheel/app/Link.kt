@@ -23,6 +23,9 @@ class InputState {
     @Volatile var brkIn = 0f      // brake as the thumb asks for it
     @Volatile var brk = 0f        // brake actually sent (after release smoothing)
     @Volatile var mask = 0
+    @Volatile var clutch = 0f
+    @Volatile var hbrake = 0f
+    @Volatile var role = Prefs.ROLE_WHEEL
     @Volatile var brakeReleaseMs = 0f
 
     // binding helper: sweep one axis so the game can detect it
@@ -30,7 +33,7 @@ class InputState {
     @Volatile var bindStartMs = 0L
 
     fun zero() {
-        steer = 0f; thr = 0f; brkIn = 0f; brk = 0f; mask = 0
+        steer = 0f; thr = 0f; brkIn = 0f; brk = 0f; mask = 0; clutch = 0f; hbrake = 0f
     }
 }
 
@@ -54,6 +57,7 @@ class Telem {
     @Volatile var absActive = false
     @Volatile var tcActive = false
     @Volatile var deltaMs = Int.MIN_VALUE
+    @Volatile var car = ""
     @Volatile var dashAt = 0L
 
     @Volatile var vAbs = 0f
@@ -100,6 +104,7 @@ class Telem {
             tcActive = p.getOrNull(17) == "1"
             deltaMs = p.getOrNull(18)?.toIntOrNull() ?: Int.MIN_VALUE
             steerLock = p.getOrNull(19)?.toIntOrNull() ?: 0
+            car = p.getOrNull(20) ?: ""
             dashAt = now
             onUpdate?.invoke()
         } else if (p[0] == "v" && p.size >= 9) {
@@ -207,6 +212,8 @@ class Link(
                     var thr = st.thr
                     var brk = st.brk
                     var mask = st.mask
+                    var clutch = st.clutch
+                    var hb = st.hbrake
                     if (st.bindAxis != 0) {
                         // binding helper: move only one axis, slowly, everything else at rest
                         val t = (now - st.bindStartMs) / 1000f
@@ -217,13 +224,16 @@ class Link(
                             steer = if (st.bindAxis == 1) kotlin.math.sin(t / 1.6f * 2f * Math.PI.toFloat()) else 0f
                             thr = if (st.bindAxis == 2) wave else 0f
                             brk = if (st.bindAxis == 3) wave else 0f
+                            clutch = if (st.bindAxis == 4) wave else 0f
+                            hb = if (st.bindAxis == 5) wave else 0f
                             mask = 0
                         }
                     }
-                    val msg = fmt(steer, thr, brk, mask)
+                    val box = st.role == Prefs.ROLE_BOX
+                    val msg = if (box) mask.toString() else fmt(steer, thr, brk, mask) + "," + f3(clutch) + "," + f3(hb)
                     // send on change, plus a keepalive so the PC watchdog stays happy
                     if (msg != lastMsg || now - lastSendT >= 40) {
-                        if (sendRaw("d,${seq++},$msg")) {
+                        if (sendRaw((if (box) "b," else "d,") + "${seq++},$msg")) {
                             lastMsg = msg
                             lastSendT = now
                         }
@@ -283,6 +293,8 @@ class Link(
             fixed4(s); sb.append(','); fixed4(t); sb.append(','); fixed4(b); sb.append(',').append(mask)
             return sb.toString()
         }
+
+        private fun f3(v: Float): String = if (v <= 0f) "0" else (Math.round(v * 1000f) / 1000f).toString()
 
         private fun fixed4(v: Float) {
             var n = Math.round(v * 10000f)

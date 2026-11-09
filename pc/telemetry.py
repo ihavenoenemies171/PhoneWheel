@@ -653,6 +653,7 @@ class Telemetry:
             str(int(f.max_rpm)), str(int(round(f.speed))), i(f.tc), i(f.tc2), i(f.abs), i(f.map), fl(f.bb),
             fl(f.fuel), fl(f.fuel_laps), "1" if f.pit_limiter else "0", "1" if f.abs_active else "0",
             "1" if f.tc_active else "0", delta, str(int(f.steer_lock or 0)),
+            (f.car or "").replace(",", " ")[:60],
         ])
 
     def vibe_packet(self, f):

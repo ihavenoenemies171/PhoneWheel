@@ -67,6 +67,14 @@ class MainActivity : Activity(), SensorEventListener {
         wheel.onHaptic = { ms -> buzz(ms) }
         wheel.onDetent = { haptics.detent() }
         wheel.onSteerModeChanged = { updateSteer() }
+        wheel.onEditTile = { page, item, isNew -> editTile(page, item, isNew) }
+        wheel.onEditOptions = {
+            LayoutDialogs.options(this, wheel.layout, wheel.page, prefs.showDash,
+                onChange = { pi, dash -> prefs.showDash = dash; wheel.setPage(pi); wheel.layoutChanged() },
+                onReset = { prefs.layoutJson = ""; prefs.save(); wheel.reloadLayout() })
+        }
+        wheel.onEditDone = { hideSystemUi(); toast("Layout saved in profile '${prefs.activeProfile().name}'") }
+        st.role = prefs.role
 
         sensors = getSystemService(Context.SENSOR_SERVICE) as SensorManager
         pickSensor()
@@ -103,6 +111,7 @@ class MainActivity : Activity(), SensorEventListener {
 
     private fun registerSensor() {
         sensors.unregisterListener(this)
+        if (prefs.role == Prefs.ROLE_BOX) return   // button box: no steering, no sensor battery use
         // 200 Hz by default (5 ms): plenty for steering; FASTEST (400+ Hz) mostly burned battery
         val periodUs = (1_000_000f / prefs.sensorHz.coerceIn(50f, 400f)).toInt()
         tiltSensor?.let { sensors.registerListener(this, it, periodUs) }
@@ -268,6 +277,7 @@ class MainActivity : Activity(), SensorEventListener {
     // ------------------------------------------------------------------ status / settings
     private fun onLinkStatus(s: LinkStatus) {
         wheel.status = s
+        autoProfile()
         if (s.connected && s.pcButtons in 1..31 && !lastButtonWarn) {
             lastButtonWarn = true
             toast("vJoy on the PC has only ${s.pcButtons} buttons. Set 32 in 'Configure vJoy'.")
@@ -279,6 +289,7 @@ class MainActivity : Activity(), SensorEventListener {
         val oldIp = prefs.manualIp
         val oldFused = prefs.fusedSensor
         val oldHz = prefs.sensorHz
+        val oldRole = prefs.role
         SettingsDialog.show(this, prefs, SettingsDialog.Actions(
             testVibration = { haptics.test() },
             bind = { axis ->
@@ -288,6 +299,10 @@ class MainActivity : Activity(), SensorEventListener {
             },
             openReport = { openReport() },
             openDiag = { DiagScreen.show(this, prefs, st, tel, diag, link, haptics) },
+            editLayout = { wheel.startEditing() },
+            profileChanged = { applyProfile() },
+            currentGame = if (tel.dashFresh(SystemClock.elapsedRealtime())) tel.game else "",
+            currentCar = if (tel.dashFresh(SystemClock.elapsedRealtime())) tel.car else "",
             vibrationInfo = when {
                 !haptics.supported -> "This phone has no vibration motor."
                 !haptics.amplitudeControl -> "This phone's motor can only switch on/off, so effects are simpler."
@@ -295,7 +310,8 @@ class MainActivity : Activity(), SensorEventListener {
             },
         )) {
             if (prefs.mode != oldMode || prefs.manualIp != oldIp) link.start(prefs.mode, prefs.manualIp)
-            if (prefs.fusedSensor != oldFused || prefs.sensorHz != oldHz) { pickSensor(); registerSensor() }
+            if (prefs.fusedSensor != oldFused || prefs.sensorHz != oldHz || prefs.role != oldRole) { pickSensor(); registerSensor() }
+            st.role = prefs.role
             applyBrightness()
             st.brakeReleaseMs = prefs.brakeRelease
             link.cfgLine = prefs.coachCfgLine()
@@ -305,6 +321,50 @@ class MainActivity : Activity(), SensorEventListener {
     }
 
     private fun buzz(ms: Long) = haptics.pulse(ms)
+
+    // ---- layout editor
+    private fun editTile(page: LPage, item: LItem, isNew: Boolean) {
+        LayoutDialogs.editItem(this, wheel.layout, page, item, isNew,
+            onSave = { e ->
+                if (isNew) {
+                    if (wheel.layout.fits(page, e.row, e.col, e.rs, e.cs)) page.items.add(e)
+                } else {
+                    item.type = e.type; item.num = e.num; item.label = e.label; item.sub = e.sub
+                    item.color = e.color; item.rs = e.rs; item.cs = e.cs
+                }
+                wheel.layoutChanged()
+                hideSystemUi()
+            },
+            onDelete = { page.items.remove(item); wheel.layoutChanged(); hideSystemUi() })
+    }
+
+    // ---- profiles
+    /** Re-apply everything after the active profile changed. */
+    private fun applyProfile() {
+        st.brakeReleaseMs = prefs.brakeRelease
+        st.role = prefs.role
+        link.cfgLine = prefs.coachCfgLine()
+        pickSensor(); registerSensor()
+        applyBrightness()
+        wheel.reloadLayout()
+        hideSystemUi()
+        toast("Profile: ${prefs.activeProfile().name}")
+    }
+
+    private var autoKey = ""
+
+    /** Switch to the profile linked to the detected car or game (checked a few times a second). */
+    private fun autoProfile() {
+        if (!tel.dashFresh(SystemClock.elapsedRealtime()) || tel.game.isEmpty()) return
+        val key = tel.game + "|" + tel.car
+        if (key == autoKey) return
+        autoKey = key
+        val want = prefs.profileFor(tel.game, tel.car) ?: return
+        if (want.file != prefs.profileFile && !wheel.editing) {
+            prefs.switchTo(want.file)
+            applyProfile()
+        }
+    }
 
     private fun openReport() {
         val host = link.pcHost
