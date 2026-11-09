@@ -87,6 +87,33 @@ def _search_dlls():
     return found
 
 
+def _try_enable(dll_dir, d):
+    """Runs 'vJoyConfig enable on' as administrator (Windows asks for permission), then waits for the driver."""
+    import time
+    cfg = None
+    for folder in (dll_dir, os.path.dirname(dll_dir), os.path.join(os.path.dirname(dll_dir), "x64")):
+        p = os.path.join(folder, "vJoyConfig.exe")
+        if os.path.isfile(p):
+            cfg = p
+            break
+    if cfg is None:
+        return False
+    print("  vJoy is switched off - turning it on (click Yes if Windows asks for permission)...")
+    try:
+        rc = ctypes.windll.shell32.ShellExecuteW(None, "runas", cfg, "enable on", os.path.dirname(cfg), 0)
+    except Exception:
+        return False
+    if rc <= 32:  # user said No, or it couldn't start
+        return False
+    for _ in range(40):
+        time.sleep(0.25)
+        if d.vJoyEnabled():
+            time.sleep(0.5)  # let the device come up fully
+            print("  vJoy switched on.")
+            return True
+    return False
+
+
 class VJoyError(Exception):
     pass
 
@@ -140,7 +167,10 @@ class VJoyDevice:
         d.GetVJDAxisExist.restype = ctypes.c_bool
 
         if not d.vJoyEnabled():
-            raise VJoyError("vJoy driver is installed but not enabled. Open 'Configure vJoy' and tick 'Enable vJoy'.")
+            # vJoy sometimes switches itself off after a Windows restart: try to turn it back on
+            if not _try_enable(os.path.dirname(self.dll_path), d):
+                raise VJoyError("vJoy is installed but switched off, and it could not be switched on automatically.\n"
+                                "  Open 'Configure vJoy', tick 'Enable vJoy' (bottom left), click Apply, then restart PhoneWheel.")
         status = d.GetVJDStatus(device_id)
         if status == VJD_STAT_MISS:
             raise VJoyError(f"vJoy device {device_id} does not exist. Create it in 'Configure vJoy'.")

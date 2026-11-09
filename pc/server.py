@@ -407,6 +407,30 @@ async def on_cleanup(app):
     app["wheel"].dev.close()
 
 
+def already_running(port):
+    """True if another PhoneWheel answers on the app port of this PC."""
+    try:
+        u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        u.settimeout(0.6)
+        u.sendto(b"PW?", ("127.0.0.1", port))
+        data, _ = u.recvfrom(256)
+        u.close()
+        return data.startswith(b"PW!")
+    except OSError:
+        return False
+
+
+async def start_site(runner, port, label, ssl_context=None):
+    """Starts an HTTP(S) site; a busy port only disables that feature instead of stopping PhoneWheel."""
+    try:
+        await web.TCPSite(runner, "0.0.0.0", port, ssl_context=ssl_context).start()
+        return True
+    except OSError:
+        print(f"\n  Note: port {port} is used by another program, so the {label} is off. "
+              "The app works normally.")
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--device", type=int, default=1, help="vJoy device number (default 1)")
@@ -419,6 +443,12 @@ def main():
     print("=" * 64)
     print("  PhoneWheel  -  phone steering wheel for ACC / RaceRoom / LMU")
     print("=" * 64)
+    if already_running(args.app_port):
+        print("\n  PhoneWheel is ALREADY RUNNING in another window (maybe minimised).")
+        print("  Use that window, or close it first and start PhoneWheel again.")
+        if FROZEN:
+            input("\n  Press Enter to close this window...")
+        return
     if args.dry_run:
         dev = vjoy.DummyDevice()
         print("  DRY RUN: inputs are shown here but NOT sent to games.")
@@ -476,14 +506,15 @@ def main():
     async def run():
         runner = web.AppRunner(app, access_log=None)
         await runner.setup()
-        await web.TCPSite(runner, "0.0.0.0", args.http_port).start()
-        if ssl_ctx:
-            await web.TCPSite(runner, "0.0.0.0", args.https_port, ssl_context=ssl_ctx).start()
         link = AppLink(app["wheel"])
         app["shared"]["link"] = link
         loop = asyncio.get_running_loop()
         await loop.create_datagram_endpoint(lambda: UdpProto(link), local_addr=("0.0.0.0", args.app_port))
         await asyncio.start_server(make_tcp_handler(link, app["wheel"]), "0.0.0.0", args.app_port)
+        # browser version + session report: optional
+        await start_site(runner, args.http_port, "browser version / session report page")
+        if ssl_ctx:
+            await start_site(runner, args.https_port, "WiFi browser version", ssl_ctx)
         try:
             while True:
                 await asyncio.sleep(3600)
@@ -495,8 +526,9 @@ def main():
     except KeyboardInterrupt:
         print("\nBye.")
     except OSError as e:
-        print(f"\n  Could not open network ports ({e}).")
-        print("  Is PhoneWheel already running in another window?")
+        print(f"\n  Could not open PhoneWheel's port {args.app_port} ({e}).")
+        print("  Another program is using it. Close other PhoneWheel windows, or end PhoneWheel.exe in")
+        print("  Task Manager (Ctrl+Shift+Esc), then start PhoneWheel again.")
         if FROZEN:
             input("  Press Enter to close...")
 
