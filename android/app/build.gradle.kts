@@ -22,9 +22,12 @@ android {
         create("release") {
             if (ksPath != null && file(ksPath).exists()) {
                 storeFile = file(ksPath)
-                storePassword = System.getenv("PW_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("PW_KEY_ALIAS")
-                keyPassword = System.getenv("PW_KEY_PASSWORD")
+                val storePw = System.getenv("PW_KEYSTORE_PASSWORD")?.trim()
+                storePassword = storePw
+                keyAlias = System.getenv("PW_KEY_ALIAS")?.trim()
+                // PKCS12 keystores use the same password for the key, so the store password is used
+                // (avoids failures from a mistyped PW_KEY_PASSWORD secret).
+                keyPassword = storePw
             }
         }
     }
