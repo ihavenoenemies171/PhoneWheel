@@ -62,7 +62,24 @@ Open the repository's **Releases** page in Chrome on the phone and download **Ph
 - The status line turns **green** and shows your PC's name and the delay in ms.
 - If it keeps searching, tap **SETUP → "WiFi – type PC address"** and type the address that PhoneWheel.exe prints. Some routers block discovery.
 
-### USB cable (lowest delay)
+### USB tethering (easy and low lag, recommended)
+No developer mode or adb needed.
+1. Plug the phone into the PC.
+2. On the phone, go to **Settings → Network / Connections → Hotspot & tethering** and turn on **USB tethering**.
+3. **First time only:** on the PC, double-click **network_setup.bat** and click **Yes** when Windows asks for permission. It does two things:
+   - lets PhoneWheel through the firewall, because Windows treats the tethering connection as "Public";
+   - makes sure the PC keeps using its own internet instead of the phone's data.
+4. Start PhoneWheel.exe and open the app. The connection setting **Automatic** finds the PC.
+
+### Phone hotspot (also low lag)
+If your PC has WiFi, turn on the phone's **hotspot** and join it from the PC. There's no router in the middle, so ping is lower and steadier. Leave the app on **Automatic**.
+
+### Reducing WiFi lag
+- The app switches the phone's WiFi to **low-latency mode** while it's open. Android's WiFi power saving was the main cause of ping spikes.
+- Use **5 GHz** WiFi, keep the phone near the router, and connect the PC with a **cable** if you can.
+- The number next to the green dot is the typical ping. A "±" after it means the ping is jumping around.
+
+### USB cable via adb (advanced)
 1. On the phone, enable **Developer options → USB debugging**. (Settings → About phone → tap **Build number** 7 times.)
 2. Download **SDK Platform-Tools for Windows** from Google and unzip it so that `platform-tools\adb.exe` sits next to PhoneWheel.exe.
 3. Plug in the phone, run **usb_android.bat**, and accept the prompt on the phone.

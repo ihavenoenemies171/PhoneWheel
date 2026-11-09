@@ -38,6 +38,7 @@ class MainActivity : Activity(), SensorEventListener {
     private lateinit var sensors: SensorManager
     private var tiltSensor: Sensor? = null
     private var vibrator: Vibrator? = null
+    private var wifiLock: android.net.wifi.WifiManager.WifiLock? = null
 
     // steering state
     private var rawDeg: Float? = null
@@ -70,6 +71,16 @@ class MainActivity : Activity(), SensorEventListener {
         vibrator = getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
         haptics = Haptics(vibrator, prefs, tel, st)
 
+        // Stop Android's WiFi power saving while the wheel is open: this is the main cause of
+        // high and jumpy ping. LOW_LATENCY (Android 10+) also prioritises this app's traffic.
+        try {
+            val wm = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+            @Suppress("DEPRECATION")
+            val mode = if (Build.VERSION.SDK_INT >= 29) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+                       else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+            wifiLock = wm.createWifiLock(mode, "PhoneWheel:lowlatency").apply { setReferenceCounted(false) }
+        } catch (_: Exception) {}
+
         if (tiltSensor == null) toast("This phone has no motion sensor. Drag the steering bar to steer.")
     }
 
@@ -92,6 +103,7 @@ class MainActivity : Activity(), SensorEventListener {
         super.onResume()
         hideSystemUi()
         registerSensor()
+        try { wifiLock?.acquire() } catch (_: Exception) {}
         st.brakeReleaseMs = prefs.brakeRelease
         link.start(prefs.mode, prefs.manualIp)
         haptics.start()
@@ -105,6 +117,7 @@ class MainActivity : Activity(), SensorEventListener {
         st.zero()
         st.bindAxis = 0
         link.stop() // sends "release everything" to the PC
+        try { if (wifiLock?.isHeld == true) wifiLock?.release() } catch (_: Exception) {}
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {

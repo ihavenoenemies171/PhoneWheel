@@ -157,6 +157,8 @@ class Link(
 
         @Volatile private var lastPong = 0L
         @Volatile private var pingMs = -1
+        @Volatile private var jitterMs = -1
+        private val pings = ArrayDeque<Int>()
         @Volatile private var pcName = ""
         @Volatile private var pcButtons = 0
 
@@ -369,7 +371,14 @@ class Link(
                 }
                 line.startsWith("q,") -> {
                     val t = line.substring(2).toLongOrNull() ?: return
-                    pingMs = ((System.nanoTime() - t) / 1_000_000L).toInt()
+                    val ms = ((System.nanoTime() - t) / 1_000_000L).toInt()
+                    synchronized(pings) {
+                        pings.addLast(ms)
+                        while (pings.size > 6) pings.removeFirst()
+                        val sorted = pings.sorted()
+                        pingMs = sorted[sorted.size / 2]                 // median: ignores one-off spikes
+                        jitterMs = sorted.last() - sorted.first()
+                    }
                     lastPong = SystemClock.elapsedRealtime()
                 }
                 line.startsWith("PW!") -> {
@@ -386,7 +395,7 @@ class Link(
             val connected = alive && lastPong != 0L && now - lastPong < 2500
             val text = when {
                 connected -> (if (pcName.isNotEmpty()) pcName else "PC") +
-                        (if (pingMs >= 0) "  ${pingMs} ms" else "")
+                        (if (pingMs >= 0) "  ${pingMs} ms" + (if (jitterMs > 4) " ±${jitterMs / 2}" else "") else "")
                 mode == Prefs.MODE_USB -> "USB: run usb_android.bat on PC"
                 mode == Prefs.MODE_MANUAL && manualIp.isEmpty() -> "Set PC address in SETUP"
                 mode == Prefs.MODE_MANUAL -> "Connecting to $manualIp…"

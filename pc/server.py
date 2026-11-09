@@ -402,7 +402,9 @@ def main():
     print("     WiFi : just open the app - it finds this PC automatically")
     if ips:
         print(f"            (or type this PC's address in the app: {', '.join(ips)})")
-    print("     USB  : run usb_android.bat, then choose 'USB cable' in the app")
+    print("     USB tethering (easy, low lag): phone Settings > Hotspot & tethering > USB tethering ON,")
+    print("            app connection 'Automatic'. First time: run network_setup.bat once.")
+    print("     USB (adb): run usb_android.bat, then choose 'USB cable' in the app")
     print("\n  Browser version (no app):")
     print(f"     USB  : http://localhost:{args.http_port}  (after usb_android.bat)")
     if ssl_ctx:

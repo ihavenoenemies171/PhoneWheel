@@ -127,7 +127,7 @@ object SettingsDialog {
         }
         val rg = RadioGroup(act)
         val labels = listOf(
-            "WiFi – find PC automatically",
+            "Automatic – WiFi, phone hotspot or USB tethering (finds the PC)",
             "USB cable (run usb_android.bat on the PC)",
             "WiFi – type PC address",
         )
@@ -150,7 +150,8 @@ object SettingsDialog {
         }
         root.addView(rg)
         root.addView(ipBox)
-        hint("The PhoneWheel PC program shows this PC's address when it starts.")
+        hint("Lowest lag: USB tethering (phone Settings → Hotspot & tethering → USB tethering) or the PC " +
+             "joined to the phone's hotspot. Both work with 'Automatic'. The PC program shows its address when it starts.")
 
         // ---------------------------------------------------------- binding helper
         header("BIND CONTROLS IN A GAME")

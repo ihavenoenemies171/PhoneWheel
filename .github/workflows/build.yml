@@ -51,6 +51,7 @@ jobs:
           New-Item -ItemType Directory -Force out | Out-Null
           Copy-Item pc/dist/PhoneWheel.exe out/
           Copy-Item pc/usb_android.bat out/
+          Copy-Item pc/network_setup.bat out/
           Copy-Item README.md out/README.md
           Compress-Archive -Path out/* -DestinationPath PhoneWheel-PC.zip -Force
       - uses: actions/upload-artifact@v4
