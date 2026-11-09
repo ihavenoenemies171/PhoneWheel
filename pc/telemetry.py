@@ -412,7 +412,7 @@ class Telemetry:
         self.impact_seq = 0
         self.impact_mag = 0.0
         self._last_gear = None
-        self._ffb_lp = None
+        self._ffb_hist = []      # last 3 FFB samples
         self._ffb_peak = 0.0
         self.last_error = ""
 
@@ -451,16 +451,26 @@ class Telemetry:
         if f.impact > 0:
             self.impact_seq += 1
             self.impact_mag = f.impact
-        # road texture from the game's own force-feedback signal (high-pass of the steering force)
+        # road texture from the game's own force-feedback signal.
+        # Uses the 2nd difference (f[n] - 2 f[n-1] + f[n-2]): fast bumps/vibration show up,
+        # slow changes from turning the wheel cancel out.
         if f.ffb is not None and math.isfinite(f.ffb):
-            if self._ffb_lp is None:
-                self._ffb_lp = f.ffb
-            self._ffb_lp += (f.ffb - self._ffb_lp) * 0.15
-            texture = abs(f.ffb - self._ffb_lp)
-            # self-calibrating: games use different FFB units, so compare to the recent peak force
-            self._ffb_peak = max(abs(f.ffb), self._ffb_peak * 0.9995)
-            if self._ffb_peak > 1e-6:
-                f.v_road = max(f.v_road, clamp01((texture / (self._ffb_peak * 0.25)) - 0.1))
+            h = self._ffb_hist
+            h.append(f.ffb)
+            if len(h) > 3:
+                h.pop(0)
+            if len(h) == 3:
+                texture = abs(h[2] - 2 * h[1] + h[0])
+                # games use different FFB units: measure texture relative to the recent peak force
+                self._ffb_peak = max(abs(f.ffb), self._ffb_peak * 0.9995, 1e-6)
+                rel = texture / self._ffb_peak
+                f.v_road = max(f.v_road, clamp01((rel - 0.04) / 0.25))
+
+        # nothing to feel when the car is (nearly) standing still: fade effects in with speed
+        move_k = clamp01((f.speed - 8.0) / 22.0)       # 0 below 8 km/h, full from 30 km/h
+        f.v_slip *= move_k
+        f.v_road *= move_k
+        f.v_kerb *= clamp01((f.speed - 3.0) / 10.0)
         self.frame = f
         return f
 
