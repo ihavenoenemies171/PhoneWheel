@@ -1,227 +1,130 @@
-# PhoneWheel: an Android app that turns your phone into a GT3 wheel
+# PhoneWheel
 
-For **Assetto Corsa Competizione**, **RaceRoom** and **Le Mans Ultimate**.
+**Turn your Android phone into a GT3-style sim racing wheel for Assetto Corsa Competizione, RaceRoom and Le Mans Ultimate.** Free and open source.
 
-- **Steering:** tilt the phone like a wheel.
-- **Brake:** big analog strip on the **left edge**.
-- **Throttle:** big analog strip on the **right edge**. Slide your thumb higher to press harder; it's gradual, not on/off.
-- **Upshift paddle on the left, downshift paddle on the right.**
-- **Wheel buttons:** two pages of GT3 controls (pit limiter, lights, wipers, TC, ABS, engine map, brake bias, ignition, starter, indicators, MFD keys, look left/right/back, and more).
-- **Connection:** WiFi (finds your PC automatically) or USB cable.
-- **Vibration "force feedback"** from live game data: ABS/lock-ups, kerbs, wheelspin, road surface, impacts, gear shifts and the rev limiter.
-- **Dashboard:** shift lights, gear, speed, TC/TC2/ABS/MAP/BB, fuel and lap delta.
-- **Brake extras:** optional pressure feel (press harder = more brake) and release smoothing for trail braking.
-- **Steering extras:** gyro-fused sensor and speed-sensitive steering.
-- **Binding helper:** sweeps one axis so the game picks the right control.
+Hold the phone sideways like a steering wheel and tilt it to steer. Your thumbs work **analog brake and throttle strips** on the screen edges. Paddle shifters and a full set of GT3 wheel buttons sit in between. Your PC sees PhoneWheel as an ordinary game controller (through [vJoy](https://github.com/BrunnerInnovation/vJoy)), so it works with any game that supports DirectInput wheels.
 
-On the PC, `PhoneWheel.exe` feeds a **vJoy** virtual controller. Windows and the games see an ordinary analog wheel (X = steering, Y = throttle, Z = brake, 32 buttons).
+PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, lock-ups, kerbs, wheelspin and impacts, shows a **dashboard** with shift lights, and includes a **driving coach** that compares every lap with your best one.
 
-```
-PhoneWheel app ──WiFi (UDP) or USB──► PhoneWheel.exe ──► vJoy virtual wheel ──► ACC / RaceRoom / LMU
-```
+> ⬇️ **Downloads (latest version)**
+> - 📱 Phone app: **[PhoneWheel.apk](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel.apk)**
+> - 💻 PC program: **[PhoneWheel-PC.zip](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-PC.zip)**
+> - All versions: [Releases](https://github.com/ihavenoenemies171/PhoneWheel/releases)
 
 ---
 
-## Step 1: Build the app and the .exe (free, about 10 minutes, one time)
+## Features
 
-GitHub builds both files for you.
+**Wheel**
+- **Tilt steering** using the gyroscope and accelerometer, with adjustable range, deadzone, smoothing, linearity and optional speed-sensitive steering.
+- **Analog brake (left edge) and throttle (right edge).** Slide your thumb up for more. Options include pedal curves, deadzones, brake pressure feel, brake release smoothing and **brake detents** (ticks you feel at 25 / 50 / 75 %).
+- **Paddle shifters:** upshift on the left, downshift on the right.
+- **32 buttons on two pages.**
+  - **DRIVE:** pit limiter, lights, flash, wipers, TC ±, ABS ±, engine map ±, brake bias ±, ignition, starter, indicators.
+  - **MFD:** arrows, OK, page, hazards, rain light, camera, HUD, ESC, look left / right / back.
 
-1. Create a free account at **github.com** if you don't have one.
-2. Click **+ → New repository**. Name it `PhoneWheel`, choose **Public** (Actions are unlimited and free for public repositories), and click **Create repository**.
-3. On the new empty repository page, click **"uploading an existing file"**.
-4. Unzip `PhoneWheel-source.zip` on your PC. Open the `PhoneWheel` folder and select **everything inside it**: the `.github`, `android` and `pc` folders plus `README.md` and `.gitignore`. Drag it all into the browser, then click **Commit changes**.
-   - Make sure the `.github` folder was uploaded. It contains the build instructions.
-5. Open the **Actions** tab. A job called **Build PhoneWheel** starts automatically and takes about 5–8 minutes.
-6. When it shows a green tick, go to the repository's **Releases** (right side of the main page). You'll find:
-   - **PhoneWheel.apk**: the Android app
-   - **PhoneWheel-PC.zip**: the Windows program
+**Feedback from the game** (ACC, RaceRoom, LMU)
+- **Vibration as force feedback:** ABS / lock-up pulses, kerb rattle, wheelspin rumble, off-track, impacts, gear shifts and the rev limiter.
+  - The default *Essential* mode plays one effect at a time and only what you can act on, so you're never overwhelmed.
+- **Screen flashes:** big edge flashes for the brake marker, ABS, wheelspin and the shift point. Each signal can vibrate, flash or both.
+- **Dashboard:** shift lights, gear, speed, live delta, TC / TC2 / ABS / MAP / brake bias and fuel (with laps left).
 
-If a step goes red, open it, copy the error text, and send it to Claude.
+**Driving coach**
+- **Live delta** against your best lap, in every game.
+- **Brake markers:** "tick-tick" in your thumb and a screen flash just before your best lap's braking points.
+- **Corner-by-corner notes,** such as *"T3 brake: 9 m earlier · peak 74% (best 88%) · locked up"* or *"T5 +0.21s: full throttle 0.4 s later · wheelspin"*.
+- **Session report** in your browser: lap times, consistency, traces of your best lap against your last lap, and **where you lose the most time, and why**.
 
-## Step 2: Install
+**Connection**
+- **WiFi:** the app finds the PC automatically, and switches the phone to Android's low-latency WiFi mode while it's open.
+- **USB tethering:** low lag, and no developer mode needed.
+- **USB via adb:** the advanced option.
+- **Safety:** if the connection drops, the PC releases throttle, brake and all buttons within 0.3 s.
 
-### Phone
-Open the repository's **Releases** page in Chrome on the phone and download **PhoneWheel.apk**. Tap it to install, and allow **"Install unknown apps"** for Chrome when Android asks. (If Play Protect warns about an unknown developer, tap **Install anyway**. The app is yours, built from this code.)
-
-### PC (Windows 10/11)
-1. Install **vJoy 2.2.2.0**, the signed build that works on Windows 11: https://github.com/BrunnerInnovation/vJoy/releases
-2. Open **Configure vJoy** from the Start menu and select device **1**:
-   - Axes: tick **X, Y, Z**
-   - Buttons: **32**
-   - POV hats: **0**
-   - Tick **Enable vJoy**, then click **Apply**.
-3. Unzip **PhoneWheel-PC.zip** into any folder and double-click **PhoneWheel.exe**.
-   - The first time, Windows SmartScreen may say "unrecognized app". Click **More info → Run anyway**.
-   - When Windows Firewall asks, tick **Private networks** and click **Allow**. This is required for WiFi.
-4. Close SimHub or any other program that might be using vJoy device 1.
-
-## Step 3: Drive
-
-### WiFi
-- Put the phone and PC on the same WiFi network, start PhoneWheel.exe, then open the app.
-- The status line turns **green** and shows your PC's name and the delay in ms.
-- If it keeps searching, tap **SETUP → "WiFi – type PC address"** and type the address that PhoneWheel.exe prints. Some routers block discovery.
-
-### USB tethering (easy and low lag, recommended)
-No developer mode or adb needed.
-1. Plug the phone into the PC.
-2. On the phone, go to **Settings → Network / Connections → Hotspot & tethering** and turn on **USB tethering**.
-3. **First time only:** on the PC, double-click **network_setup.bat** and click **Yes** when Windows asks for permission. It does two things:
-   - lets PhoneWheel through the firewall, because Windows treats the tethering connection as "Public";
-   - makes sure the PC keeps using its own internet instead of the phone's data.
-4. Start PhoneWheel.exe and open the app. The connection setting **Automatic** finds the PC.
-
-### Phone hotspot (also low lag)
-If your PC has WiFi, turn on the phone's **hotspot** and join it from the PC. There's no router in the middle, so ping is lower and steadier. Leave the app on **Automatic**.
-
-### Reducing WiFi lag
-- The app switches the phone's WiFi to **low-latency mode** while it's open. Android's WiFi power saving was the main cause of ping spikes.
-- Use **5 GHz** WiFi, keep the phone near the router, and connect the PC with a **cable** if you can.
-- The number next to the green dot is the typical ping. A "±" after it means the ping is jumping around.
-
-### USB cable via adb (advanced)
-1. On the phone, enable **Developer options → USB debugging**. (Settings → About phone → tap **Build number** 7 times.)
-2. Download **SDK Platform-Tools for Windows** from Google and unzip it so that `platform-tools\adb.exe` sits next to PhoneWheel.exe.
-3. Plug in the phone, run **usb_android.bat**, and accept the prompt on the phone.
-4. In the app, tap **SETUP → "USB cable"**.
-5. Re-run `usb_android.bat` whenever you re-plug the phone.
-
-### In the app
-- Hold the phone level and tap **CENTER** to set straight ahead.
-- **LOCK** freezes the steering. Use it while binding pedals and buttons in a game so the game doesn't grab the steering axis by mistake.
-- Drag the steering bar with a finger to steer by touch (for testing).
-- **DRIVE / MFD** switches between the two button pages.
-- **SETUP** has the connection mode, steering range, deadzone, smoothing, linearity, invert, pedal deadzone, pedal curves, vibration, and "show button numbers".
+<p align="center"><img src="docs/images/session-report.png" width="720" alt="Example session report"><br><em>Example session report (generated from simulated laps)</em></p>
 
 ---
 
-## Vibration and dashboard (game telemetry)
+## Quick start (about 10 minutes)
 
-PhoneWheel.exe reads live data from the game and sends it to the phone. The dashboard shows *"Start ACC, RaceRoom or LMU to see live data"* until a game is running and you're on track. The PC window also shows `[ACC]`, `[RaceRoom]` or `[LMU]` when it detects a game.
+You need an **Android phone** (Android 8 or newer) and a **Windows 10/11 PC**.
 
-- **ACC:** works automatically.
-- **RaceRoom:** works automatically.
-- **Le Mans Ultimate:** needs the free **rF2 Shared Memory Map** plugin. SimHub and CrewChief install it for you. To install it by hand:
-  1. Download `rFactor2SharedMemoryMapPlugin64.dll` from https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin/releases
-  2. Copy it into LMU's plugin folder: `Le Mans Ultimate\Plugins\`. On some versions it's `Le Mans Ultimate\Bin64\Plugins\`; use whichever exists.
-  3. Start LMU once and close it. Then open `Le Mans Ultimate\UserData\player\CustomPluginVariables.json` and make sure the plugin's `" Enabled"` value is `1`.
+1. **Install vJoy 2.2.2.0 on the PC** from https://github.com/BrunnerInnovation/vJoy/releases (the `.exe` under *Assets*). Restart the PC if asked.
+2. **Configure vJoy:** open *Configure vJoy* from the Start menu, select device **1**, and set:
+   - axes **X, Y, Z** ticked;
+   - **32** buttons;
+   - **0** POV hats;
+   - **Enable vJoy** ticked.
 
-| Effect | What you feel | ACC | RaceRoom | LMU |
-|---|---|---|---|---|
-| ABS / lock-up | Hard pulses while ABS works or the front wheels lock | ✓ | ✓ | ✓ (lock-up) |
-| Kerbs | Fast rattle on rumble strips | ✓ | ✓ | ✓ |
-| Wheelspin / slide | Smooth rumble | ✓ | ✓ | ✓ |
-| Road surface | Grass, gravel, bumps (from the game's FFB signal) | ✓ | ✓ (off-track) | ✓ |
-| Impacts | Strong jolt | ✓ | ✓ | ✓ |
-| Gear shift | Short kick | ✓ | ✓ | ✓ |
-| Rev limiter | Buzz | ✓ | ✓ | ✓ |
+   Then click **Apply**.
+3. **Download and unzip [PhoneWheel-PC.zip](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel-PC.zip)** anywhere, then double-click **PhoneWheel.exe**.
+   - If Windows SmartScreen warns you, click *More info → Run anyway*.
+   - If the firewall asks, click **Allow**.
+4. **On the phone, download [PhoneWheel.apk](https://github.com/ihavenoenemies171/PhoneWheel/releases/latest/download/PhoneWheel.apk)** and install it. Allow *Install unknown apps* when asked.
+5. **Connect:** put the phone and PC on the **same WiFi** and open the app. The status line turns green when it has found the PC.
+6. **Drive:** hold the phone level, tap **CENTER**, and bind the controls in your game's controls menu.
+   - Use **SETUP → Bind controls** for steering, throttle and brake.
+   - Tap the wheel buttons to bind them.
 
-In the app, **SETUP → Vibration** has three presets:
+👉 **Full step-by-step guide with every option:** [docs/SETUP.md](docs/SETUP.md)
 
-- **Essential (default):** only feedback you can act on, and one effect at a time.
-  - Priority order: impact, then lock-up/ABS, then wheelspin/slide, then kerb hit, then off-track.
-  - Lock-up and ABS only play while you're braking. Wheelspin only plays when you're off the brake. Small amounts of slip are ignored.
-  - Kerbs and leaving the track give a short burst, not constant buzzing. A slide that keeps going fades after about a second.
-- **Immersive:** every effect layered, including road texture, gear shift ticks and the rev limiter.
-- **Off:** no game vibration. Button clicks still work.
+---
 
-Each effect has its own strength slider. **Test all effects** plays each one in turn so you can learn what they feel like: ABS, 3 kerb hits, wheelspin building up, off-track, impact, then a shift tick.
+## Documentation
 
-The **dashboard** shows shift lights (they flash blue at the shift point, and alternate when the pit limiter is on), gear, speed, TC / TC2 / ABS / MAP / brake bias, fuel and laps left, and the lap delta in ACC. The TC and ABS boxes light up when those systems are working. A game that doesn't report a value shows "–".
-
-## Vibrate or flash
-
-In **SETUP → Vibrate or flash**, choose how each signal reaches you: **Vibrate**, **Flash** or **Both**. The flashes are big and bright so you catch them in your peripheral vision while watching the monitor.
-
-| Signal | Flash |
+| Guide | What's inside |
 |---|---|
-| Brake marker (default: both) | The whole screen flashes white twice, in time with the ticks |
-| ABS / lock-up (default: vibrate) | The brake strip pulses orange |
-| Wheelspin / slide (default: vibrate) | The throttle strip glows yellow |
-| Shift point (on) | The screen edge blinks blue |
-| Coach messages (on) | A short green (better) or red (worse) glow around the screen |
+| [Setup guide](docs/SETUP.md) | Installing everything, all connection methods (WiFi, USB tethering, hotspot, adb), first drive |
+| [Game setup](docs/GAMES.md) | Binding controls in ACC, RaceRoom and LMU; telemetry setup (LMU plugin); recommended settings |
+| [Features & settings](docs/FEATURES.md) | Every screen, button, setting, vibration effect, the dashboard and the driving coach explained |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Fixes for the common problems |
+| [Building from source](docs/BUILDING.md) | How the project is put together, building the APK and EXE yourself, the network protocol |
+| [Contributing](CONTRIBUTING.md) | How to report bugs, suggest features and send changes |
 
-**Flash brightness** sets how strong the flashes are.
+---
 
-## Driving coach
+## How it works
 
-PhoneWheel.exe records every lap against track position and compares it with **your best clean lap** on the same track and car. Best laps are saved next to PhoneWheel.exe (`best_laps` folder), so the coach is ready from the first lap of your next session. Drive **one clean lap** to set the reference; it updates whenever you go faster. Laps in the pits, invalid laps and incomplete laps don't count.
+```
+ Android phone (PhoneWheel app)                         Windows PC (PhoneWheel.exe)
+ ┌───────────────────────────────┐   WiFi (UDP)        ┌──────────────────────────────────┐
+ │ tilt sensor → steering        │   or USB            │ vJoy virtual wheel ──► the game  │
+ │ touch → brake / throttle      │ ──────────────────► │   X = steering, Y = throttle,    │
+ │ buttons, paddles              │   ~120 updates/s    │   Z = brake, buttons 1–32        │
+ │                               │                     │                                  │
+ │ vibration, flashes, dashboard │ ◄────────────────── │ game telemetry (shared memory)   │
+ │ coach messages                │   dash + effects    │ driving coach, session report    │
+ └───────────────────────────────┘                     └──────────────────────────────────┘
+```
 
-| Feature | What it does |
-|---|---|
-| **Live delta** | The number under the speed on the dashboard: time vs your best lap at this exact point. Green means faster, red means slower. Works in all three games. |
-| **Brake markers** | Two quick ticks in your thumb ("tick-tick, brake") just before each point where you braked on your best lap. Set the timing in SETUP → Driving coach (default 0.5 s before). |
-| **Brake coach** | After each braking zone, a short note if something changed: "T3 brake: 9 m earlier · peak 74% (best 88%) · released too quickly · locked up". |
-| **Exit coach** | After each corner exit, time gained or lost through the corner plus anything that went wrong: "T3 +0.21s: full throttle 0.4s later · 1 throttle lift · wheelspin". |
-| **Sector splits** | "Sector 1 −0.12s" when you gain or lose at least 0.05 s. |
-| **Lap summary** | "New best lap 1:47.312 (−0.204)" or "Lap 1:47.9 (+0.6)". |
-| **Session report** | A page with lap times, sectors, consistency, speed, brake and throttle traces of your best vs last lap, a time-loss graph and a corner table that lists **where you lose the most time and why**. It updates after every lap. |
+- **PC program:** Python (aiohttp), packaged as a single `.exe` with PyInstaller. It feeds vJoy through `vJoyInterface.dll` and reads each game's shared memory.
+- **Android app:** Kotlin, using only the plain Android framework (no third-party libraries).
+- **Releases:** GitHub Actions builds the APK and the EXE on every push to `main` and publishes them as a release.
 
-The coach stays quiet when you do something the same as your best lap. Messages appear on the dashboard for 4 seconds and are also printed in the PhoneWheel.exe window.
+## Supported games
 
-**Open the session report:** on the PC, go to http://localhost:8765/report. On the phone, tap **SETUP → Open session report**. Older sessions are listed at /reports and saved in the `reports` folder next to PhoneWheel.exe.
+| | Controls | Vibration & dashboard | Driving coach |
+|---|---|---|---|
+| Assetto Corsa Competizione | ✅ | ✅ built in | ✅ |
+| RaceRoom Racing Experience | ✅ | ✅ built in | ✅ |
+| Le Mans Ultimate | ✅ | ✅ with the free [rF2 Shared Memory plugin](https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin) | ✅ |
+| Other PC sims with DirectInput wheel support | ✅ | – | – |
 
-## More settings in the app (SETUP)
+## Limitations
 
-- **Bind controls in a game:** in the game's controls menu, click the control you want to assign. Then tap **Steering**, **Throttle** or **Brake** in SETUP. The app moves only that axis for 4 seconds, so the game can't pick up the wrong one.
-- **Brake pressure feel:** pressing harder adds brake. It works by measuring how much of your thumb touches the screen. Not every phone reports this; if yours doesn't, the setting does nothing.
-- **Brake detents:** you feel a light tick in your thumb as the brake passes 25 %, 50 % and 75 % (or another spacing you choose), like notches on a real pedal. You can tell how hard you're braking without looking.
-- **Brake trace:** after each stop, the brake strip shows a white line of what you just did, plus a yellow mark and "peak xx%". Time runs left to right. It fades after a few seconds. Use it to check whether you braked hard enough at first and released smoothly down to zero.
-- **Look buttons toggle:** LOOK LEFT, RIGHT and BACK latch. Tap once to look and tap again to return; tapping another look button switches straight to it. Games only look while the button is held, so a plain tap would flick the view straight back. You can turn this off in SETUP → Buttons.
-- **Brake release smoothing:** the brake lets go more gently, which makes it easier to hold a steady trail brake with a thumb.
-- **Gyro-fused sensor:** on by default. Steering is smoother and faster, and bumps or moving in your chair don't disturb it.
-- **Speed-sensitive steering:** steering gets calmer at high speed. It needs a running game for the speed data.
-- **Shift lights start:** sets how early the first LED lights.
+- **No real force feedback:** a phone can't push back against your hands, so vibration stands in for it.
+- **Android only for the app.** iPhones can use the **browser version** included in PhoneWheel.exe: open `https://<PC-IP>:8766` in Safari. It has steering, pedals and buttons, but no vibration effects or coach.
+- **Windows only for the PC program,** because vJoy is a Windows driver.
 
-## Button map (vJoy buttons)
+## License
 
-| # | Button | # | Button | # | Button |
-|---|---|---|---|---|---|
-| 1 | **Upshift** (left paddle) | 12 | Engine map + | 23 | Look back |
-| 2 | **Downshift** (right paddle) | 13 | Engine map − | 24 | Camera |
-| 3 | Pit limiter | 14 | Brake bias + (fwd) | 25 | MFD up |
-| 4 | Headlights | 15 | Brake bias − (rear) | 26 | MFD down |
-| 5 | Flash | 16 | Ignition | 27 | MFD left |
-| 6 | Wipers | 17 | Starter | 28 | MFD right |
-| 7 | Rain light | 18 | Indicator left | 29 | MFD OK / enter |
-| 8 | TC + | 19 | Indicator right | 30 | MFD page cycle |
-| 9 | TC − | 20 | Hazards | 31 | ESC / menu |
-| 10 | ABS + | 21 | Look left | 32 | HUD cycle |
-| 11 | ABS − | 22 | Look right | | |
+PhoneWheel is open source under the [MIT License](LICENSE). You can use, copy, modify and share it freely, including in your own projects, as long as you keep the copyright notice.
 
-## Game setup
+PhoneWheel isn't affiliated with Kunos Simulazioni, Sector3 Studios / KW Studios, Motorsport Games / Studio 397, or the vJoy project. Game names are trademarks of their owners.
 
-In every game: keep PhoneWheel.exe running and the app connected. To bind a pedal, turn **LOCK on** and slide your thumb all the way up the strip. To bind a button, tap it. Turn LOCK off when you bind steering.
+## Credits
 
-- **ACC**: Options → Controls → new/custom wheel profile.
-  - Steering = X; set steer lock to the car's real lock or auto.
-  - Throttle = Y, brake = Z. Check in calibration that both reach 0–100 %.
-  - Then bind gears, pit limiter, TC/ABS/MAP/BB, lights, wipers, ignition, starter and MFD.
-- **RaceRoom**: Options → Controls → create a profile (Custom).
-  - Steer = X, Accelerate = Y, Brake = Z, then gears and buttons.
-  - Lower steering sensitivity if the car feels twitchy.
-- **Le Mans Ultimate**: Settings → Controls.
-  - Steering = X, Throttle = Y, Brake = Z, then shift up/down and buttons.
-
-**Recommended starting point:** in-app steering range 90° (tilt the phone 45° each way for full lock), smoothing 20 %, pedal curves 1.0. For finer trail braking, raise the brake curve to about 1.4.
-
-## Troubleshooting
-
-- **App stuck on "Searching WiFi for PC…"**: allow PhoneWheel.exe through the firewall on Private networks, check that both devices are on the same network, or type the PC address in SETUP. Guest WiFi networks often block devices from reaching each other.
-- **"USB: run usb_android.bat on PC"**: run the bat file again with the phone plugged in, and accept the USB debugging prompt.
-- **PhoneWheel.exe says "falling back to DRY RUN"**: vJoy isn't installed or enabled, or device 1 is busy. The window prints the exact reason.
-- **Steering goes the wrong way**: SETUP → Invert steering.
-- **The game binds steering when you wanted a pedal**: turn on LOCK first.
-- **Safety**: if the phone disconnects, the app is closed, or data stops for 0.3 s, the PC releases throttle, brake and all buttons.
-- **No dashboard or vibration from the game**: check that the PC window shows the game name in `[ ]`. For LMU, install the plugin (see above). If the phone's settings have vibration turned off system-wide, the app can't vibrate either.
-- **Real force feedback (pushing back) isn't possible.** A phone can't resist your hands; vibration is the substitute.
-
-## Without the app (browser version)
-PhoneWheel.exe also serves a browser version of the wheel:
-- **WiFi:** open `https://<PC-IP>:8766` in Chrome on any phone, iPhone included. Accept the certificate warning the first time.
-- **USB:** open `http://localhost:8765` after running usb_android.bat.
-
-## Project layout
-- `android/`: the Android app (Kotlin, no third-party libraries)
-- `pc/`: PC server (`server.py`, `vjoy.py`, `telemetry.py`, `coach.py`, `report.py`) and the browser version (`web/`). You can run it with Python instead of the .exe: run `setup.bat`, then `start.bat`.
-- `.github/workflows/build.yml`: builds `PhoneWheel.apk` and `PhoneWheel.exe` on GitHub
+- [vJoy](https://github.com/BrunnerInnovation/vJoy): the virtual joystick driver.
+- [sector3studios/r3e-api](https://github.com/sector3studios/r3e-api): RaceRoom shared memory layout.
+- [TheIronWolfModding/rF2SharedMemoryMapPlugin](https://github.com/TheIronWolfModding/rF2SharedMemoryMapPlugin): rFactor 2 / LMU shared memory.
+- ACC shared memory layout as documented by Kunos, cross-checked with [PyAccSharedMemory](https://github.com/rrennoir/PyAccSharedMemory).

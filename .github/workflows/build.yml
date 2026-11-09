@@ -53,6 +53,8 @@ jobs:
           Copy-Item pc/usb_android.bat out/
           Copy-Item pc/network_setup.bat out/
           Copy-Item README.md out/README.md
+          Copy-Item LICENSE out/LICENSE.txt
+          Copy-Item -Recurse docs out/docs
           Compress-Archive -Path out/* -DestinationPath PhoneWheel-PC.zip -Force
       - uses: actions/upload-artifact@v4
         with:

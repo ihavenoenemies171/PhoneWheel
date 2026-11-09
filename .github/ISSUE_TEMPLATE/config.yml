@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Troubleshooting guide
+    url: https://github.com/ihavenoenemies171/PhoneWheel/blob/main/docs/TROUBLESHOOTING.md
+    about: Check the common fixes first

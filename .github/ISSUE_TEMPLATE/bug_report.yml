@@ -1,0 +1,38 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PhoneWheel version
+      placeholder: e.g. v1.0.12 (from the release you downloaded)
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android version
+      placeholder: e.g. Samsung Galaxy A54, Android 14
+  - type: dropdown
+    id: game
+    attributes:
+      label: Game
+      options: [Assetto Corsa Competizione, RaceRoom, Le Mans Ultimate, Other / not game related]
+  - type: dropdown
+    id: connection
+    attributes:
+      label: Connection
+      options: [WiFi, USB tethering, Phone hotspot, USB via adb, Browser version]
+  - type: textarea
+    id: window
+    attributes:
+      label: PhoneWheel.exe window
+      description: Paste the text or attach a screenshot of the PhoneWheel.exe window.
