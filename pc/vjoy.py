@@ -187,24 +187,77 @@ class VJoyDevice:
                               if not d.GetVJDAxisExist(device_id, a)]
         self._axes = {}
         self._buttons = 0
+        self.failed = False        # a write to vJoy failed: check ownership as soon as possible
+        self.state = "ok"          # ok / lost / busy / off  (shown in the status line)
+        self._said = None
 
     def set_axis(self, axis, norm):
         """norm: 0..1"""
         v = int(AXIS_MIN + max(0.0, min(1.0, norm)) * (AXIS_MAX - AXIS_MIN))
         if self._axes.get(axis) != v:
-            self._axes[axis] = v
-            self.dll.SetAxis(v, self.id, axis)
+            if self.dll.SetAxis(v, self.id, axis):
+                self._axes[axis] = v
+            else:
+                self.failed = True
 
     def set_buttons(self, mask):
         changed = mask ^ self._buttons
         if not changed:
             return
         n = min(32, self.button_count)
+        ok = True
         for i in range(n):
             bit = 1 << i
             if changed & bit:
-                self.dll.SetBtn(bool(mask & bit), self.id, i + 1)
-        self._buttons = mask
+                ok = self.dll.SetBtn(bool(mask & bit), self.id, i + 1) and ok
+        if ok:
+            self._buttons = mask
+        else:
+            self.failed = True
+
+    def _say(self, key, msg):
+        if self._said != key:
+            self._said = key
+            print("\n" + msg)
+
+    def check(self):
+        """Make sure we still own the vJoy device; take it back if we lost it.
+        Returns True when it was (re)acquired, so the caller can resend the current input.
+        Ownership can be lost when another program grabs the device (Monect, PC Remote, vJoy Feeder,
+        SimHub ...) or when Windows restarts the driver after sleep. The game then sees a frozen
+        controller while PhoneWheel's window still shows your input."""
+        self.failed = False
+        d = self.dll
+        try:
+            if not d.vJoyEnabled():
+                self.state = "off"
+                self._say("off", "[!] vJoy was switched off (Windows sleep or another program). Turn it back on in "
+                                 "'Configure vJoy' (tick Enable vJoy, Apply). Restart the game if it still doesn't react.")
+                return False
+            status = d.GetVJDStatus(self.id)
+        except Exception:
+            return False
+        if status == VJD_STAT_OWN:
+            if self.state != "ok":
+                self.state = "ok"
+                self._say("ok", "[+] vJoy device is ours again - the game gets your input")
+            return False
+        if status == VJD_STAT_BUSY:
+            self.state = "busy"
+            self._say("busy", f"[!] Another program has taken vJoy device {self.id}, so the game no longer gets "
+                              "your input.\n    Close Monect / PC Remote / vJoy Feeder / SimHub (or anything else "
+                              "using vJoy) - PhoneWheel takes it back automatically.")
+            return False
+        if status == VJD_STAT_FREE and d.AcquireVJD(self.id):
+            self.state = "ok"
+            self._said = "ok"
+            print(f"\n[+] Lost the vJoy device (Windows let go of it) and took it back - input restored")
+            self._axes = {}          # resend everything
+            self._buttons = 0
+            return True
+        self.state = "lost"
+        self._say("lost", f"[!] Lost vJoy device {self.id} (status {status}); retrying every second")
+        return False
 
     def close(self):
         try:
@@ -220,6 +273,12 @@ class DummyDevice:
     missing_axes = []
     missing_extra = []
     dll_path = "(dry run - no vJoy)"
+
+    failed = False
+    state = "ok"
+
+    def check(self):
+        return False
 
     def set_axis(self, axis, norm):
         pass

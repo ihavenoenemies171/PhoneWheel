@@ -48,6 +48,14 @@ Only one copy can run at a time. Use the window that's already open (it may be m
 
 Update to the latest app version, which fixed sticky paddles. Lifting all your fingers off the screen always releases every button. Latched look buttons are the exception: tap them again.
 
+## The game stops reacting after a pause, a replay or using another window
+
+The phone is still connected and PhoneWheel's window shows your input, but the car doesn't respond.
+
+- **Another program took the virtual wheel.** Monect, PC Remote Receiver, vJoy Feeder and SimHub can grab vJoy device 1. Since v1.0.24 PhoneWheel checks every second, takes the device back as soon as it's free, and tells you in its window ("Another program has taken vJoy device 1") and on the phone. Close or uninstall the program that grabs it.
+- **vJoy was switched off,** for example after Windows sleep. The window says "vJoy was switched off". Turn it back on in *Configure vJoy*. If the game still doesn't react, restart the game, because ACC only looks for controllers at start-up.
+- **The game window isn't focused.** After using another window, click once on the game. Most sims ignore controllers while they're in the background.
+
 ## Steering briefly jumps to centre and back
 
 This was the PC's safety cut-out reacting to a short WiFi stall. It used to release everything after 0.3 s without data. Since v1.0.21, a stall only cuts the throttle; steering, brake and buttons are held for up to 1.5 s. Each stall is logged in the PhoneWheel window as `[i] 420 ms gap in data from the phone`. If you see many of those:

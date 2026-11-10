@@ -552,6 +552,7 @@ async def index(request):
 async def watchdog(app):
     wheel: Wheel = app["wheel"]
     last_print = 0.0
+    last_check = 0.0
     while True:
         await asyncio.sleep(0.05)
         now = time.monotonic()
@@ -563,6 +564,22 @@ async def watchdog(app):
         elif wheel.last and quiet > WATCHDOG_THR_S and (wheel.thr or wheel.clutch or wheel.hbrake):
             wheel.cut_power()
         wheel.expire_boxes()
+        # still own the virtual controller? (every second, or right away when a write failed)
+        dev = wheel.dev
+        if getattr(dev, "failed", False) or now - last_check > 1.0:
+            last_check = now
+            before = getattr(dev, "state", "ok")
+            if dev.check():
+                wheel.apply()
+            after = getattr(dev, "state", "ok")
+            link = app["shared"].get("link")
+            if after != before and link is not None:
+                msg = {"busy": "c,bad,Another PC program took the virtual wheel (vJoy). Close Monect / PC Remote / feeder apps",
+                       "off": "c,bad,vJoy was switched off on the PC. Turn it on in Configure vJoy",
+                       "lost": "c,bad,PC lost the virtual wheel (vJoy). Retrying...",
+                       "ok": "c,good,Virtual wheel restored"}.get(after)
+                if msg:
+                    link.push(msg)
         if wheel.client and wheel.client.endswith("(wifi)") and now - wheel.last > 2.0:
             print(f"\n[-] {wheel.client} went quiet")
             wheel.client = None
@@ -575,7 +592,8 @@ async def watchdog(app):
             game = f"  [{tel.game}]" if tel is not None and tel.game else ""
             line = (f"\r  steer {wheel.steer:+.2f}  thr {wheel.thr:4.0%}  brk {wheel.brk:4.0%}  "
                     f"btn [{' '.join(pressed) or '-'}]  {wheel.rate:3d} Hz  "
-                    f"{'connected ' + str(wheel.client) if wheel.client else 'waiting for phone...'}{game}")
+                    f"{'connected ' + str(wheel.client) if wheel.client else 'waiting for phone...'}{game}"
+                    + ("" if getattr(wheel.dev, "state", "ok") == "ok" else f"  vJoy {wheel.dev.state.upper()}!"))
             sys.stdout.write(line.ljust(110))
             sys.stdout.flush()
 
