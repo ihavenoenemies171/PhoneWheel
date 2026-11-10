@@ -1,11 +1,14 @@
 """
-PhoneWheel session report: a self-contained HTML page (no internet needed) written after every lap.
+PhoneWheel report: a self-contained HTML page (no internet needed) written after every lap.
+One report per game + track + car: every lap you drive there, across all sessions, ends up in the same file.
+The laps themselves are kept next to it in <name>.laps.jsonl (one lap per line).
 
 Shows lap times and consistency, speed / throttle / brake traces of your best and last lap with the
 time delta between them, and a per-corner table that points at where the most time is lost.
 """
 import datetime
 import html
+import json
 import math
 import os
 import statistics
@@ -20,21 +23,76 @@ def fmt_lap(t):
     return f"{int(m)}:{s:06.3f}"
 
 
+HISTORY_ANALYSIS = 30   # corner / track-map analysis uses your most recent laps across sessions
+
+
 class Session:
     def __init__(self, data_dir, game, track, car, track_len, best):
         self.dir = os.path.join(data_dir, "reports")
         self.game, self.track, self.car, self.track_len = game, track or "Unknown track", car or "", track_len
         self.best = best                # LapData (may come from an earlier session)
-        self.laps = []
+        self.laps = []                  # laps of this session
+        self.history = []               # laps of earlier sessions at this track + car (oldest first)
         self.imported = None
         self.theoretical = (None, [])
         self.started = datetime.datetime.now()
-        name = f"{self.started:%Y-%m-%d_%H%M}_{_slug(self.track)}.html"
-        self.path = os.path.join(self.dir, name)
+        base = f"{_slug(game or 'game')}__{_slug(self.track)}__{_slug(self.car or 'car')}"
+        self.path = os.path.join(self.dir, base + ".html")
+        self.laps_path = os.path.join(self.dir, base + ".laps.jsonl")
+        self._load_history()
+        if self.history:
+            self.add_lap(None)      # show the track's report (with its history) straight away
+
+    # ------------------------------------------------------------------ lap history
+    def _load_history(self):
+        from coach import LapData   # local import: coach imports report too
+        if not os.path.isfile(self.laps_path):
+            return
+        try:
+            with open(self.laps_path, encoding="utf-8") as fh:
+                for line in fh:
+                    try:
+                        j = json.loads(line)
+                        lap = LapData.from_json(j)
+                    except Exception:
+                        continue            # skip a damaged line, keep the rest
+                    lap.number = int(j.get("number", 0))
+                    lap.valid = bool(j.get("valid", True))
+                    lap.in_pit = bool(j.get("in_pit", False))
+                    lap.when = j.get("when", "")
+                    self.history.append(lap)
+        except OSError as e:
+            print(f"\n[report] could not read lap history: {e}")
+
+    def record(self, lap):
+        """A lap just finished: keep it for this session and append it to the track + car history file."""
+        lap.when = f"{self.started:%Y-%m-%d %H:%M:%S}"
+        self.laps.append(lap)
+        if len(lap.d) < 20:
+            return
+        try:
+            os.makedirs(self.dir, exist_ok=True)
+            j = lap.to_json()
+            j.update(number=lap.number, valid=bool(lap.valid), in_pit=bool(lap.in_pit), when=lap.when)
+            with open(self.laps_path, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(j, separators=(",", ":")) + "\n")
+        except OSError as e:
+            print(f"\n[report] could not save lap: {e}")
+
+    def new_run(self):
+        """The game started a new session (e.g. practice -> qualifying): earlier laps become history."""
+        self.history.extend(self.laps)
+        self.laps = []
+        self.theoretical = (None, [])
+        self.started = datetime.datetime.now()
+
+    @property
+    def all_laps(self):
+        return self.history + self.laps
 
     def add_lap(self, lap):
         if lap is not None:
-            self.laps.append(lap)
+            self.record(lap)
         try:
             self.write()
         except Exception as e:  # never let the report break driving
@@ -46,7 +104,8 @@ class Session:
         if best is None or not best.zones:
             return []
         rows = []
-        valid = [l for l in self.laps if l.valid and l is not best] or [l for l in self.laps if l is not best]
+        recent = self.all_laps[-HISTORY_ANALYSIS:]
+        valid = [l for l in recent if l.valid and l is not best] or [l for l in recent if l is not best]
         for z in best.zones:
             a = max(0.0, z.start_d - 50)
             b = z.exit_d if z.exit_d else z.end_d + 150
@@ -79,12 +138,15 @@ class Session:
     def write(self):
         os.makedirs(self.dir, exist_ok=True)
         laps = self.laps
+        every = self.all_laps
         valid_times = [l.lap_time for l in laps if l.valid and l.lap_time]
-        best_t = self.best.lap_time if self.best else (min(valid_times) if valid_times else None)
+        all_valid = [l.lap_time for l in every if l.valid and l.lap_time]
+        best_t = self.best.lap_time if self.best else (min(all_valid) if all_valid else None)
         session_best = min(valid_times) if valid_times else None
         near = [t for t in valid_times if best_t and t <= best_t * 1.07]
         consistency = statistics.pstdev(near) if len(near) >= 2 else None
-        last = laps[-1] if laps else None
+        last = every[-1] if every else None
+        n_sessions = len({getattr(l, "when", "") for l in every})
         rows = self._corner_rows()
         top = sorted([r for r in rows if r["loss"] is not None and r["loss"] > 0.02], key=lambda r: -r["loss"])[:3]
 
@@ -102,12 +164,13 @@ class Session:
 <meta http-equiv="refresh" content="30">
 <title>PhoneWheel report – {e(self.track)}</title>
 <style>{CSS}</style></head><body><main>
-<header><div class="kicker">PhoneWheel session report · {e(self.game)} · {self.started:%d %b %Y, %H:%M}</div>
+<header><div class="kicker">PhoneWheel report · {e(self.game)} · {len(every)} laps in {n_sessions} session(s) · updated {datetime.datetime.now():%d %b %Y, %H:%M}</div>
 <h1>{e(self.track)}</h1><div class="sub">{e(self.car)}</div></header>
 <section class="tiles">
  <div class="tile"><span>Best lap (all time)</span><b>{fmt_lap(best_t)}</b></div>
  <div class="tile"><span>Best this session</span><b>{fmt_lap(session_best)}</b></div>
- <div class="tile"><span>Laps (valid)</span><b>{len(laps)} ({len(valid_times)})</b></div>
+ <div class="tile"><span>Laps this session (valid)</span><b>{len(laps)} ({len(valid_times)})</b></div>
+ <div class="tile"><span>Laps here, all sessions</span><b>{len(every)}</b></div>
  <div class="tile"><span>Consistency (std dev)</span><b>{f"{consistency:.3f}s" if consistency is not None else "–"}</b></div>
  <div class="tile"><span>Theoretical best</span><b>{fmt_lap(self.theoretical[0])}</b><em>{tb_gap}</em></div>
 </section>{ref_note}""")
@@ -129,19 +192,39 @@ class Session:
                            + (f": {', '.join(why)}" if why else "") + "</li>")
             out.append("</ol></section>")
 
-        # lap times chart + table
-        if laps:
+        # lap times chart + table (every lap at this track + car, newest session first)
+        if every:
             out.append("<section><h2>Lap times</h2>")
-            pts = [(l.number, l.lap_time) for l in laps if l.lap_time]
-            out.append(bar_chart(pts, best_t, [l.valid for l in laps if l.lap_time]))
+            recent = [l for l in every if l.lap_time][-60:]
+            if len(every) > 60:
+                out.append("<p class='note'>Chart: your last 60 laps. The table below has every lap.</p>")
+            pts = [(i + 1, l.lap_time) for i, l in enumerate(recent)]
+            out.append(bar_chart(pts, best_t, [l.valid for l in recent]))
             out.append('<table><tr><th>Lap</th><th>Time</th><th>vs best</th><th>S1</th><th>S2</th><th>S3</th>'
                        '<th>Lock-ups</th><th>Wheelspin</th><th>Top speed</th><th></th></tr>')
-            for l in laps:
+            groups = []
+            for l in every:
+                w = getattr(l, "when", "")
+                if not groups or groups[-1][0] != w:
+                    groups.append((w, []))
+                groups[-1][1].append(l)
+            ordered = []
+            for w, ls in reversed(groups):
+                bests = [x.lap_time for x in ls if x.valid and x.lap_time]
+                head = f"Session {w[:16]}" + (" (this session)" if ls and ls[0] in laps else "")
+                head += f" · {len(ls)} laps" + (f" · best {fmt_lap(min(bests))}" if bests else "")
+                ordered.append(head)
+                ordered.extend(ls)
+            for l in ordered:
+                if isinstance(l, str):
+                    out.append(f"<tr class='group'><td colspan='10'>{e(l)}</td></tr>")
+                    continue
                 secs = [("" if x is None else f"{x:.2f}") for x in sectors(l)]
                 gap = (l.lap_time - best_t) if (l.lap_time and best_t) else None
                 gap_s = "" if gap is None else f"{gap:+.3f}"
-                tag = "best" if self.best is l else ("" if l.valid else "invalid")
-                cls = "best" if self.best is l else ("" if l.valid else "inv")
+                is_best = l.valid and l.lap_time and best_t and abs(l.lap_time - best_t) < 5e-4
+                tag = "best" if is_best else ("" if l.valid else "invalid")
+                cls = "best" if is_best else ("" if l.valid else "inv")
                 locks = sum(1 for z in l.zones if z.lock)
                 spins = sum(1 for z in l.zones if z.spin)
                 out.append(f"<tr class='{cls}'><td>{l.number}</td><td>{fmt_lap(l.lap_time)}</td>"
@@ -154,9 +237,9 @@ class Session:
         # track map with time-loss heat
         if self.best is not None and self.best.has_map():
             out.append("<section><h2>Track map: where you gain and lose time</h2>"
-                       "<p class='note'>Average of your valid laps compared with your best lap: red = losing time, "
+                       "<p class='note'>Average of your last 30 valid laps here compared with your best lap: red = losing time, "
                        "green = gaining, grey = the same. Labels mark your best lap's braking points.</p>")
-            out.append(track_map(self.best, [l for l in laps if l.valid and l is not self.best]))
+            out.append(track_map(self.best, [l for l in every[-HISTORY_ANALYSIS:] if l.valid and l is not self.best]))
             out.append("</section>")
 
         # theoretical best breakdown
@@ -219,10 +302,10 @@ class Session:
                        "rates how smoothly you released the brake from its peak: points are lost for dropping it suddenly, "
                        "re-applying it, or releasing in a stab.</p></section>")
 
-        if not laps:
+        if not every:
             out.append("<section><p>Drive a full lap to see your first analysis.</p></section>")
         out.append("<footer>Updates after every lap · this page refreshes itself every 30 s · "
-                   "<a href='/laps'>Share or load reference laps</a> · <a href='/reports'>Older sessions</a></footer></main></body></html>")
+                   "<a href='/laps'>Share or load reference laps</a> · <a href='/reports'>Other tracks and cars</a></footer></main></body></html>")
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             fh.write("".join(out))
@@ -407,7 +490,7 @@ h1{margin:4px 0 0;font-size:30px}.sub{color:var(--dim)}h2{font-size:18px;margin:
 .tile em{display:block;font-style:normal;color:var(--dim);font-size:12px}a{color:var(--accent)}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px;display:block;overflow-x:auto}
 th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{color:var(--dim);font-weight:600}
-td:first-child,th:first-child{text-align:left}tr.best td{color:#2bd96b;font-weight:700}tr.inv td{color:#5a6370}tr.hot td{background:#ff3b3014}
+td:first-child,th:first-child{text-align:left}tr.best td{color:#2bd96b;font-weight:700}tr.inv td{color:#5a6370}tr.hot td{background:#ff3b3014}tr.group td{color:var(--accent);font-weight:700;padding-top:14px;text-align:left}
 figure{margin:10px 0 18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px}
 figcaption{color:var(--dim);font-size:13px;margin:0 0 4px 4px}svg{width:100%;height:auto;display:block}
 .grid{stroke:#ffffff14}.ax{fill:#8a94a3;font-size:11px}.zone{stroke:#ffffff30;stroke-dasharray:3 4}.zl{fill:#8a94a3;font-size:10px}

@@ -299,8 +299,11 @@ object SettingsDialog {
         pct("Flash brightness", "", p.flashBright) { p.flashBright = it }
 
         header("DRIVING COACH")
-        hint("Compares every lap with your best lap on the same track and car (saved on the PC, so it " +
-             "carries over to your next session). Drive one clean lap to set the reference.")
+        hint("Compares every lap with your best lap on the same track and car. By default that's your best " +
+             "lap of this session, the same as the game's own delta. Your all-time best is saved on the PC " +
+             "and updates every time you beat it.")
+        check("Compare with my all-time best", "Off: this session's best, matches the in-game delta. " +
+              "On: your best lap ever here (delta, brake markers and notes)", p.deltaAllTime) { p.deltaAllTime = it }
         check("Brake markers", "Two quick ticks in your thumb just before each braking point of your best lap",
             p.coachMarkers) { p.coachMarkers = it }
         slider("Marker timing", "How early the ticks come before the braking point", 200f, 1200f, 50f, p.markerLead,

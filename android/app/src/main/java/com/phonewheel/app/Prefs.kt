@@ -63,6 +63,7 @@ class Prefs(private val ctx: Context) {
 
     // coach
     var coachMarkers = true  // tick in the thumb before your best lap's braking points
+    var deltaAllTime = false // compare with the all-time best instead of this session's best (like the game)
     var markerLead = 500f    // ms before the braking point
     var hMarker = 0.85f
     var coachMessages = true
@@ -129,6 +130,7 @@ class Prefs(private val ctx: Context) {
         hImpact = sp.getFloat("hImpact", 1f)
         hButtons = sp.getFloat("hButtons", 0.6f)
         coachMarkers = sp.getBoolean("coachMarkers", true)
+        deltaAllTime = sp.getBoolean("deltaAllTime", false)
         markerLead = sp.getFloat("markerLead", 500f)
         hMarker = sp.getFloat("hMarker", 0.85f)
         coachMessages = sp.getBoolean("coachMessages", true)
@@ -184,6 +186,7 @@ class Prefs(private val ctx: Context) {
             .putFloat("hImpact", hImpact)
             .putFloat("hButtons", hButtons)
             .putBoolean("coachMarkers", coachMarkers)
+            .putBoolean("deltaAllTime", deltaAllTime)
             .putFloat("markerLead", markerLead)
             .putFloat("hMarker", hMarker)
             .putBoolean("coachMessages", coachMessages)
@@ -204,7 +207,7 @@ class Prefs(private val ctx: Context) {
             .apply()
     }
 
-    fun coachCfgLine() = "cfg,${if (coachMarkers) 1 else 0},${markerLead.toInt()},${if (coachMessages) 1 else 0}"
+    fun coachCfgLine() = "cfg,${if (coachMarkers) 1 else 0},${markerLead.toInt()},${if (coachMessages) 1 else 0},${if (deltaAllTime) 1 else 0}"
 
     /** Restores default tuning in this profile (keeps the layout and connection settings). */
     fun resetTuning() {

@@ -156,9 +156,10 @@ The flashes are big and bright so you catch them in the corner of your eye while
 
 The coach compares every lap with **your best clean lap** on the same track and car:
 
-- **Saving:** best laps are saved by PhoneWheel.exe, so they carry over between sessions.
-- **Which laps count:** invalid laps, laps that go through the pits and incomplete laps don't count.
-- **Starting out:** drive one clean lap to set the reference. It updates whenever you go faster.
+- **Which best:** by default, your **best lap of this session**, the same lap the game's own delta uses. In ACC the phone then shows the game's delta number exactly. Until you've set a lap this session, it uses your all-time best. Turn on **SETUP → Driving coach → Compare with my all-time best** to chase your personal record instead. That setting applies to the delta, brake markers and corner notes.
+- **Saving:** your all-time best for every track and car is saved by PhoneWheel.exe and **replaced every time you beat it** ("New best lap"). A faster lap that isn't an all-time best still becomes your session best ("Session best").
+- **Which laps count:** invalid laps (track limits), laps that go through the pits and incomplete laps don't count, just like in the game.
+- **Starting out:** drive one clean lap to set the reference.
 
 | Feature | Example |
 |---|---|
@@ -191,20 +192,20 @@ Your best lap for every game, track and car is saved, and you can **share** it. 
 - **Load** a lap file as your **reference**. The live delta, brake markers and corner notes then compare you with *that* lap (a faster friend's, or an old lap of yours) instead of your own best;
 - **Remove** the reference to go back to your own best.
 
-### Session report
+### Report
 
-Open **http://localhost:8765/report** on the PC, or tap **SETUP → Open session report** on the phone. The report updates after every lap and shows:
+Open **http://localhost:8765/report** on the PC, or tap **SETUP → Open session report** on the phone. There is **one report per track and car**, with **every lap you've driven there**, across all sessions, grouped by session (newest first). It updates after every lap and shows:
 
-- best lap (all time and this session), number of laps, and consistency (standard deviation of your laps within 107 % of the best);
+- best lap (all time and this session), laps this session and in total, and consistency (standard deviation of this session's laps within 107 % of the best);
 - **Where you lose the most time:** the top three corners, with the reasons (braking earlier, lower minimum speed, lock-ups, wheelspin);
-- lap times chart and table with sectors, lock-ups, wheelspin and top speed;
+- lap times chart (last 60 laps) and a table of every lap with sectors, lock-ups, wheelspin and top speed;
 - speed, brake and throttle traces of your best lap against your last lap, with the braking points marked;
 - a time-vs-best graph: when the line goes up, you're losing time there;
-- a **track map** coloured by where you gain (green) and lose (red) time on average, with corner labels;
+- a **track map** coloured by where you gain (green) and lose (red) time on average over your last 30 laps, with corner labels;
 - the **theoretical best** table;
 - a corner table: braking point, peak pressure, minimum speed and average time lost per corner.
 
-Older sessions are at http://localhost:8765/reports and in the `reports` folder next to PhoneWheel.exe.
+All your tracks and cars are listed at http://localhost:8765/reports. The files are in the `reports` folder (next to PhoneWheel.exe, or Documents\PhoneWheel for the installed version): `<game>__<track>__<car>.html` is the report and `.laps.jsonl` next to it holds the laps. Reports from older versions (one file per session) stay in the list.
 
 **A good routine:**
 1. Drive 10 laps.

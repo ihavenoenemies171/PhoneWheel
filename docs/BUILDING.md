@@ -80,7 +80,7 @@ All messages are short ASCII text. The app uses **UDP port 8767** over WiFi (one
 | `d,<seq>,<steer>,<thr>,<brk>,<mask>,<clutch>,<handbrake>` | Wheel input, sent on every change plus a keepalive every 40 ms. steer −1..1, the rest 0..1, mask = 32-bit button mask. Over UDP, out-of-order packets are dropped by `seq`. |
 | `b,<seq>,<mask>` | Button box (second device): buttons only. These are combined with the wheel's buttons and expire after 1 s of silence. |
 | `p,<t>` | Ping. The PC echoes `q,<t>` |
-| `cfg,<markers 0/1>,<lead ms>,<messages 0/1>` | Coach settings, resent every 2 s |
+| `cfg,<markers 0/1>,<lead ms>,<messages 0/1>,<vs all-time 0/1>` | Coach settings, resent every 2 s. Last field: compare with the all-time best instead of the session best |
 | `bye` | App closing: release everything |
 
 **PC → App**
@@ -137,6 +137,7 @@ Every reader produces the same `Frame`, which holds dashboard values, vibration 
 - Each lap is resampled onto a 2 m distance grid: time, speed, throttle, brake, ABS and slip.
 - A lap counts as **valid** when it covers the whole track without gaps, the game marks it valid, it didn't enter the pits, and it's longer than 10 s.
 - **Braking zones:** brake rises above 15 % and lasts at least 0.25 s with a peak of at least 25 %. Each zone gets an apex (minimum speed) and an exit (until full throttle, max 6 s).
-- **Live delta** = current lap time − best lap's time at the same distance.
+- **Live delta** = current lap time − the reference lap's time at the same distance. The reference is an imported lap if one is loaded, else the session best (ACC: the game's own delta is shown), else the all-time best.
+- **Laps** for the report are appended to `reports/<game>__<track>__<car>.laps.jsonl`, one JSON lap per line, so one report covers every session at that track and car.
 - **Brake marker** fires at `zone start − speed × lead time` (at least 15 m before).
 - The best lap per game + track + car is stored as JSON in `best_laps/`.

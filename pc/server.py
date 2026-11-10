@@ -11,6 +11,7 @@ Run:  PhoneWheel.exe   or   python server.py      (add --dry-run to test without
 import argparse
 import asyncio
 import datetime
+import html
 import ipaddress
 import json
 import os
@@ -519,10 +520,14 @@ async def report_page(request):
 async def reports_list(request):
     folder = os.path.join(APP_DIR, "reports")
     files = sorted((f for f in os.listdir(folder) if f.endswith(".html")), reverse=True) if os.path.isdir(folder) else []
-    items = "".join(f'<li><a href="/reports/{f}">{f[:-5]}</a></li>' for f in files) or "<li>No sessions yet</li>"
+    def label(f):
+        name = f[:-5]
+        return name.replace("__", " · ").replace("_", " ") if "__" in name else f"{name} (older, single session)"
+    files.sort(key=lambda f: ("__" not in f, f))   # one-per-track-and-car reports first
+    items = "".join(f'<li><a href="/reports/{f}">{html.escape(label(f))}</a></li>' for f in files) or "<li>No reports yet</li>"
     return web.Response(text=f"<!doctype html><meta name=viewport content='width=device-width'><title>PhoneWheel sessions</title>"
                              f"<body style='background:#0b0d10;color:#e9edf2;font:16px system-ui;padding:20px'>"
-                             f"<h1>Sessions</h1><ul>{items}</ul>", content_type="text/html")
+                             f"<h1>Reports</h1><p>One report per track and car, with every lap you've driven there.</p><ul>{items}</ul>", content_type="text/html")
 
 
 async def report_file(request):
@@ -536,7 +541,7 @@ async def report_file(request):
 REPORT_EMPTY = ("<!doctype html><meta name=viewport content='width=device-width'><meta http-equiv=refresh content=15>"
                 "<title>PhoneWheel report</title><body style='background:#0b0d10;color:#e9edf2;font:16px system-ui;padding:24px'>"
                 "<h1>No session yet</h1><p>Drive at least one full lap in ACC, RaceRoom or LMU. "
-                "This page refreshes by itself. <a style='color:#ffcc00' href='/reports'>Older sessions</a></p>")
+                "This page refreshes by itself. <a style='color:#ffcc00' href='/reports'>All tracks and cars</a></p>")
 
 
 async def index(request):
@@ -622,7 +627,9 @@ async def telemetry_loop(app):
                     push("m")
                 elif ev[0] == "c":
                     push(f"c,{ev[2]},{ev[1]}")
-            if coach.delta is not None:
+            # Delta on the phone: when comparing with the session best, show the game's own number if it
+            # has one (ACC), so it matches the in-game delta exactly; otherwise our own calculation.
+            if coach.delta is not None and not (coach.follows_game_delta and frame.delta_ms is not None):
                 frame.delta_ms = int(coach.delta * 1000)
             push(tel.vibe_packet(frame))
             now = time.monotonic()

@@ -258,7 +258,9 @@ class Coach:
         self.lead_s = 0.5
         self.messages_on = True
         self.key = None
-        self.best = None          # your own best lap (LapData)
+        self.best = None          # your own all-time best lap (LapData), saved on disk
+        self.session_best = None  # best valid lap of the current game session (what the game's delta uses)
+        self.vs_alltime = False   # phone setting: compare with the all-time best instead of the session best
         self.imported = None      # a reference lap loaded from a file (someone else's or an old one)
         self.cur = None           # LapData being recorded
         self.last_lap_counter = None
@@ -272,20 +274,33 @@ class Coach:
         self._sector_delta = 0.0
         self._pending_exit = None
 
-    # ---- settings from the phone: cfg,<markers 0/1>,<lead ms>,<messages 0/1>
+    # ---- settings from the phone: cfg,<markers 0/1>,<lead ms>,<messages 0/1>[,<vs all-time 0/1>]
     def configure(self, line):
         p = line.split(",")
         try:
             self.markers_on = p[1] == "1"
             self.lead_s = max(0.0, min(2.0, int(p[2]) / 1000.0))
             self.messages_on = p[3] == "1"
+            if len(p) > 4:
+                self.vs_alltime = p[4] == "1"
         except (IndexError, ValueError):
             pass
 
     @property
     def reference(self):
-        """Lap used for delta, brake markers and corner notes: an imported reference if you loaded one."""
-        return self.imported or self.best
+        """Lap used for delta, brake markers and corner notes:
+        an imported reference if you loaded one, else this session's best (like the game's own delta),
+        or your all-time best if you chose that / before you've set a lap this session."""
+        if self.imported is not None:
+            return self.imported
+        if not self.vs_alltime and self.session_best is not None:
+            return self.session_best
+        return self.best
+
+    @property
+    def follows_game_delta(self):
+        """True when our reference is the session best, so the game's own delta number is the right one to show."""
+        return self.imported is None and not self.vs_alltime
 
     def _say(self, text, tone="info"):
         if self.messages_on:
@@ -349,6 +364,7 @@ class Coach:
             self.key = key
             self._announced_tb = None
             self.best = self._load_ref(key)
+            self.session_best = None
             self.imported = self._load_ref(key, "__reference")
             self.cur = None
             self.last_lap_counter = None
@@ -358,6 +374,12 @@ class Coach:
         d = f.lap_dist
         L = f.track_len
 
+        # new game session (practice -> qualifying, restart): the lap counter goes back down
+        if self.last_lap_counter is not None and f.lap < self.last_lap_counter:
+            self.session_best = None
+            self.cur = None
+            if self.session is not None:
+                self.session.new_run()
         # lap finished?
         if self.last_lap_counter is not None and f.lap != self.last_lap_counter and self.cur is not None:
             self._finish_lap(f)
@@ -374,6 +396,10 @@ class Coach:
         self.last_lap_counter = f.lap
 
         if f.lap_time is None or f.lap_time < 0:
+            return
+        # Right after the line the game can still report the old position (~100 %) for a few frames.
+        # Recording that would make the whole new lap look out of order (and never count as a best).
+        if f.lap_time < 5.0 and d > 0.5 * L:
             return
         cell = math.floor(d / GRID) * GRID
         self.cur.add(cell, f.lap_time, f.speed, f.throttle, f.brake, f.v_abs, f.v_slip, f.pos_x, f.pos_z)
@@ -546,26 +572,33 @@ class Coach:
         lap.valid = bool(good)
         lap.zones = find_zones(lap) if lap.complete() else []
         if self.session is not None:
-            self.session.laps.append(lap)
-        if good and (self.best is None or lap.lap_time < self.best.lap_time - 1e-3):
-            had = self.best is not None
-            old = self.best.lap_time if had else None
+            self.session.record(lap)
+        def fmt(t):
+            mm, ss = divmod(t, 60)
+            return f"{int(mm)}:{ss:06.3f}"
+        prev_session = self.session_best
+        new_session_best = good and (prev_session is None or lap.lap_time < prev_session.lap_time - 1e-3)
+        new_alltime = good and (self.best is None or lap.lap_time < self.best.lap_time - 1e-3)
+        if new_session_best:
+            self.session_best = lap
+        if new_alltime:
+            old = self.best.lap_time if self.best is not None else None
             self.best = lap
             self._save_ref(lap)
             if self.session is not None:
                 self.session.best = lap
-            mm, ss = divmod(lap.lap_time, 60)
-            txt = f"New best lap {int(mm)}:{ss:06.3f}"
-            if had:
-                txt += f"  ({lap.lap_time - old:+.3f})"
-            self._say(txt, "good")
-        elif lap.lap_time and self.best is not None and lap.complete():
-            mm, ss = divmod(lap.lap_time, 60)
-            self._say(f"Lap {int(mm)}:{ss:06.3f}  ({lap.lap_time - self.best.lap_time:+.3f})"
-                      + ("" if good else "  invalid"), "info" if good else "bad")
+            self._say(f"New best lap {fmt(lap.lap_time)}" + (f"  ({lap.lap_time - old:+.3f})" if old else ""), "good")
+        elif new_session_best and not self.vs_alltime and prev_session is not None:
+            self._say(f"Session best {fmt(lap.lap_time)}  ({lap.lap_time - prev_session.lap_time:+.3f})"
+                      f"  ·  all-time {fmt(self.best.lap_time)}", "good")
+        elif lap.lap_time and lap.complete():
+            ref = self.best if (self.vs_alltime or prev_session is None) else prev_session
+            if ref is not None:
+                self._say(f"Lap {fmt(lap.lap_time)}  ({lap.lap_time - ref.lap_time:+.3f})"
+                          + ("" if good else "  invalid"), "info" if good else "bad")
         self._theoretical()
         if self.session is not None:
-            self.session.add_lap(None)   # rewrite the report
+            self.session.add_lap(None)   # rewrite the report (the lap was recorded above)
 
     def _theoretical(self):
         if self.session is None:
