@@ -23,6 +23,39 @@ def fmt_lap(t):
     return f"{int(m)}:{s:06.3f}"
 
 
+def load_laps(path):
+    """All laps in a .laps.jsonl file -> (laps, number of lines). lap.uid = its line number."""
+    from coach import LapData   # local import: coach imports report too
+    laps, n = [], 0
+    if not os.path.isfile(path):
+        return laps, 0
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for n, line in enumerate(fh, 1):
+                try:
+                    j = json.loads(line)
+                    lap = LapData.from_json(j)
+                except Exception:
+                    continue            # skip a damaged line, keep the rest
+                lap.number = int(j.get("number", 0))
+                lap.valid = bool(j.get("valid", True))
+                lap.in_pit = bool(j.get("in_pit", False))
+                lap.when = j.get("when", "")
+                lap.uid = n - 1
+                laps.append(lap)
+    except OSError as e:
+        print(f"\n[report] could not read laps: {e}")
+    return laps, n
+
+
+def lap_label(lap):
+    when = getattr(lap, "when", "")[:16]
+    state = "" if lap.valid else " · invalid"
+    if not lap.complete():
+        state += " · incomplete"
+    return f"{when} · lap {lap.number} · {fmt_lap(lap.lap_time)}{state}"
+
+
 HISTORY_ANALYSIS = 30   # corner / track-map analysis uses your most recent laps across sessions
 
 
@@ -33,6 +66,7 @@ class Session:
         self.best = best                # LapData (may come from an earlier session)
         self.laps = []                  # laps of this session
         self.history = []               # laps of earlier sessions at this track + car (oldest first)
+        self._next_uid = 0
         self.imported = None
         self.theoretical = (None, [])
         self.started = datetime.datetime.now()
@@ -45,28 +79,12 @@ class Session:
 
     # ------------------------------------------------------------------ lap history
     def _load_history(self):
-        from coach import LapData   # local import: coach imports report too
-        if not os.path.isfile(self.laps_path):
-            return
-        try:
-            with open(self.laps_path, encoding="utf-8") as fh:
-                for line in fh:
-                    try:
-                        j = json.loads(line)
-                        lap = LapData.from_json(j)
-                    except Exception:
-                        continue            # skip a damaged line, keep the rest
-                    lap.number = int(j.get("number", 0))
-                    lap.valid = bool(j.get("valid", True))
-                    lap.in_pit = bool(j.get("in_pit", False))
-                    lap.when = j.get("when", "")
-                    self.history.append(lap)
-        except OSError as e:
-            print(f"\n[report] could not read lap history: {e}")
+        self.history, self._next_uid = load_laps(self.laps_path)
 
     def record(self, lap):
         """A lap just finished: keep it for this session and append it to the track + car history file."""
         lap.when = f"{self.started:%Y-%m-%d %H:%M:%S}"
+        lap.uid = None
         self.laps.append(lap)
         if len(lap.d) < 20:
             return
@@ -76,6 +94,8 @@ class Session:
             j.update(number=lap.number, valid=bool(lap.valid), in_pit=bool(lap.in_pit), when=lap.when)
             with open(self.laps_path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(j, separators=(",", ":")) + "\n")
+            lap.uid = self._next_uid      # = its line in the .laps.jsonl file, used by the compare page
+            self._next_uid += 1
         except OSError as e:
             print(f"\n[report] could not save lap: {e}")
 
@@ -161,7 +181,6 @@ class Session:
         out = []
         out.append(f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta http-equiv="refresh" content="30">
 <title>PhoneWheel report – {e(self.track)}</title>
 <style>{CSS}</style></head><body><main>
 <header><div class="kicker">PhoneWheel report · {e(self.game)} · {len(every)} laps in {n_sessions} session(s) · updated {datetime.datetime.now():%d %b %Y, %H:%M}</div>
@@ -200,7 +219,16 @@ class Session:
                 out.append("<p class='note'>Chart: your last 60 laps. The table below has every lap.</p>")
             pts = [(i + 1, l.lap_time) for i, l in enumerate(recent)]
             out.append(bar_chart(pts, best_t, [l.valid for l in recent]))
-            out.append('<table><tr><th>Lap</th><th>Time</th><th>vs best</th><th>S1</th><th>S2</th><th>S3</th>'
+            base = os.path.basename(self.laps_path)[:-len(".laps.jsonl")]
+            stored = [l for l in every if getattr(l, "uid", None) is not None]
+            best_lap = next((l for l in reversed(stored) if l.valid and l.lap_time and best_t
+                             and abs(l.lap_time - best_t) < 5e-4), None)
+            pick_a = best_lap or (stored[0] if stored else None)
+            pick_b = next((l for l in reversed(stored) if l is not pick_a), None)
+            button = ("<div class='cmpbar'><button type='submit'>Compare lap A with lap B</button>"
+                      "<span>Pick any two laps in the A and B columns, valid or invalid, from any session.</span></div>")
+            out.append(f"<form action='/compare' method='get'><input type='hidden' name='r' value='{e(base)}'>{button}")
+            out.append('<table><tr><th>A</th><th>B</th><th>Lap</th><th>Time</th><th>vs best</th><th>S1</th><th>S2</th><th>S3</th>'
                        '<th>Lock-ups</th><th>Wheelspin</th><th>Top speed</th><th></th></tr>')
             groups = []
             for l in every:
@@ -217,7 +245,7 @@ class Session:
                 ordered.extend(ls)
             for l in ordered:
                 if isinstance(l, str):
-                    out.append(f"<tr class='group'><td colspan='10'>{e(l)}</td></tr>")
+                    out.append(f"<tr class='group'><td colspan='12'>{e(l)}</td></tr>")
                     continue
                 secs = [("" if x is None else f"{x:.2f}") for x in sectors(l)]
                 gap = (l.lap_time - best_t) if (l.lap_time and best_t) else None
@@ -227,12 +255,18 @@ class Session:
                 cls = "best" if is_best else ("" if l.valid else "inv")
                 locks = sum(1 for z in l.zones if z.lock)
                 spins = sum(1 for z in l.zones if z.spin)
-                out.append(f"<tr class='{cls}'><td>{l.number}</td><td>{fmt_lap(l.lap_time)}</td>"
+                uid = getattr(l, "uid", None)
+                if uid is None:
+                    radios = "<td></td><td></td>"
+                else:
+                    radios = (f"<td><input type='radio' name='a' value='{uid}'{' checked' if l is pick_a else ''}></td>"
+                              f"<td><input type='radio' name='b' value='{uid}'{' checked' if l is pick_b else ''}></td>")
+                out.append(f"<tr class='{cls}'>{radios}<td>{l.number}</td><td>{fmt_lap(l.lap_time)}</td>"
                            f"<td>{gap_s}</td>"
                            + "".join(f"<td>{x}</td>" for x in secs)
                            + f"<td>{locks}</td><td>{spins}</td><td>{max(l.v) if l.v else 0:.0f}</td>"
                            f"<td>{tag}</td></tr>")
-            out.append("</table></section>")
+            out.append(f"</table>{button}</form></section>")
 
         # track map with time-loss heat
         if self.best is not None and self.best.has_map():
@@ -304,7 +338,8 @@ class Session:
 
         if not every:
             out.append("<section><p>Drive a full lap to see your first analysis.</p></section>")
-        out.append("<footer>Updates after every lap · this page refreshes itself every 30 s · "
+        out.append(REFRESH_JS)
+        out.append("<footer>Updates after every lap · this page refreshes itself every 30 s (not while you're picking laps) · "
                    "<a href='/laps'>Share or load reference laps</a> · <a href='/reports'>Other tracks and cars</a></footer></main></body></html>")
         tmp = self.path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
@@ -339,7 +374,11 @@ def sectors(lap):
 
 # ---------------------------------------------------------------------- charts (inline SVG)
 W, H, PL, PR, PT, PB = 1000, 220, 46, 12, 14, 26
-COLORS = {"best": "#2f8cff", "last": "#ff8a00", "delta": "#e9edf2"}
+COLORS = {"best": "#2f8cff", "last": "#ff8a00", "delta": "#e9edf2", "A": "#2f8cff", "B": "#ff8a00", "B − A": "#e9edf2"}
+
+# Reload every 30 s for new laps, but never while you're choosing laps to compare.
+REFRESH_JS = ("<script>(function(){var busy=false;document.addEventListener('change',function(){busy=true});"
+              "setInterval(function(){if(!busy&&!document.hidden)location.reload()},30000)})();</script>")
 
 
 def _downsample(xs, ys, n=900):
@@ -490,7 +529,7 @@ h1{margin:4px 0 0;font-size:30px}.sub{color:var(--dim)}h2{font-size:18px;margin:
 .tile em{display:block;font-style:normal;color:var(--dim);font-size:12px}a{color:var(--accent)}
 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;font-size:14px;display:block;overflow-x:auto}
 th,td{padding:6px 10px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}th{color:var(--dim);font-weight:600}
-td:first-child,th:first-child{text-align:left}tr.best td{color:#2bd96b;font-weight:700}tr.inv td{color:#5a6370}tr.hot td{background:#ff3b3014}tr.group td{color:var(--accent);font-weight:700;padding-top:14px;text-align:left}
+td:first-child,th:first-child{text-align:left}tr.best td{color:#2bd96b;font-weight:700}tr.inv td{color:#5a6370}tr.hot td{background:#ff3b3014}.cmpbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin:10px 0}.cmpbar span{color:var(--dim);font-size:13px}button,select{font:inherit;background:#22262d;color:var(--text);border:1px solid var(--line);border-radius:8px;padding:7px 12px}button{background:var(--accent);color:#0b0d10;font-weight:700;border:0;cursor:pointer}input[type=radio]{accent-color:var(--accent);width:18px;height:18px}tr.group td{color:var(--accent);font-weight:700;padding-top:14px;text-align:left}
 figure{margin:10px 0 18px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px}
 figcaption{color:var(--dim);font-size:13px;margin:0 0 4px 4px}svg{width:100%;height:auto;display:block}
 .grid{stroke:#ffffff14}.ax{fill:#8a94a3;font-size:11px}.zone{stroke:#ffffff30;stroke-dasharray:3 4}.zl{fill:#8a94a3;font-size:10px}
@@ -498,3 +537,113 @@ figcaption{color:var(--dim);font-size:13px;margin:0 0 4px 4px}svg{width:100%;hei
 .legend i{display:inline-block;width:14px;height:3px;margin-right:6px;vertical-align:middle;border-radius:2px}
 .tips li{margin:6px 0}.note{color:var(--dim);font-size:13px}footer{color:#5a6370;font-size:12px;margin-top:30px}
 """
+
+
+# ---------------------------------------------------------------------- compare any two laps
+def compare_page(laps, uid_a, uid_b, base):
+    """HTML page comparing lap A with lap B (any two laps from a .laps.jsonl file, valid or not)."""
+    e = html.escape
+    by_uid = {l.uid: l for l in laps}
+    A, B = by_uid.get(uid_a), by_uid.get(uid_b)
+    meta = (A or B or (laps[0] if laps else None))
+    meta = meta.meta if meta is not None else {}
+    track = meta.get("track") or (base.split("__")[1].replace("_", " ") if "__" in base else base)
+    car = meta.get("car") or ""
+    game = meta.get("game") or ""
+
+    opts = lambda sel: "".join(
+        f"<option value='{l.uid}'{' selected' if l.uid == sel else ''}>{e(lap_label(l))}</option>"
+        for l in reversed(laps))
+    picker = (f"<form class='cmpbar' action='/compare' method='get'><input type='hidden' name='r' value='{e(base)}'>"
+              f"<label>A <select name='a'>{opts(uid_a)}</select></label>"
+              f"<label>B <select name='b'>{opts(uid_b)}</select></label>"
+              f"<button type='submit'>Compare</button></form>")
+    out = [f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhoneWheel – compare laps</title><style>{CSS}</style></head><body><main>
+<header><div class="kicker">PhoneWheel lap comparison · {e(game)} · <a href="/reports/{e(base)}.html">back to the report</a></div>
+<h1>{e(track)}</h1><div class="sub">{e(car)}</div></header>{picker}"""]
+
+    if A is None or B is None:
+        out.append("<section><p>Pick two laps above.</p></section></main></body></html>")
+        return "".join(out)
+
+    def tag(l):
+        bits = []
+        if not l.valid:
+            bits.append("invalid")
+        if not l.complete():
+            bits.append("incomplete")
+        return " · ".join(bits)
+
+    diff = (B.lap_time - A.lap_time) if (A.lap_time and B.lap_time) else None
+    out.append(f"""<section class="tiles">
+ <div class="tile"><span style="color:{COLORS['A']}">A · {e(getattr(A, 'when', '')[:16])} · lap {A.number}</span><b>{fmt_lap(A.lap_time)}</b><em>{e(tag(A))}</em></div>
+ <div class="tile"><span style="color:{COLORS['B']}">B · {e(getattr(B, 'when', '')[:16])} · lap {B.number}</span><b>{fmt_lap(B.lap_time)}</b><em>{e(tag(B))}</em></div>
+ <div class="tile"><span>B compared with A</span><b>{'–' if diff is None else f'{diff:+.3f}s'}</b><em>{'' if diff is None else ('B is faster' if diff < 0 else 'B is slower' if diff > 0 else 'the same')}</em></div>
+</section>""")
+    if not A.valid or not B.valid:
+        out.append("<p class='note'>Invalid laps are compared exactly like valid ones. Remember the time may include a "
+                   "cut or a trip off track, which is usually where they gain or lose the most.</p>")
+
+    # sectors
+    sa, sb = sectors(A), sectors(B)
+    cell = lambda x: "–" if x is None else f"{x:.3f}"
+    dcell = lambda a, b: "" if (a is None or b is None) else f"{b - a:+.3f}"
+    out.append("<section><h2>Sectors</h2><table><tr><th></th><th>S1</th><th>S2</th><th>S3</th><th>Lap</th></tr>")
+    out.append("<tr><td>A</td>" + "".join(f"<td>{cell(x)}</td>" for x in sa) + f"<td>{fmt_lap(A.lap_time)}</td></tr>")
+    out.append("<tr><td>B</td>" + "".join(f"<td>{cell(x)}</td>" for x in sb) + f"<td>{fmt_lap(B.lap_time)}</td></tr>")
+    out.append("<tr class='hot'><td>B − A</td>" + "".join(f"<td>{dcell(a, b)}</td>" for a, b in zip(sa, sb))
+               + f"<td>{'' if diff is None else f'{diff:+.3f}'}</td></tr></table>"
+               "<p class='note'>Sectors here are thirds of the lap distance (the same in every PhoneWheel report).</p></section>")
+
+    # traces
+    L = A.track_len or B.track_len
+    zones = A.zones
+    dd, dv = [], []
+    for d, t in zip(B.d, B.t):
+        rt = A.time_at(d)
+        if rt is not None:
+            dd.append(d); dv.append(t - rt)
+    out.append("<section><h2>Lap A vs lap B</h2><p class='note'>Distance along the lap. Grey lines mark lap A's braking points (T1, T2 …).</p>")
+    out.append(line_chart("Time B − A (s) – going up = B losing time", L, [(dd, dv, "B − A")], zones, signed=True))
+    out.append(line_chart("Speed (km/h)", L, [(A.d, A.v, "A"), (B.d, B.v, "B")], zones))
+    out.append(line_chart("Brake (%)", L, [(A.d, [x * 100 for x in A.brk], "A"), (B.d, [x * 100 for x in B.brk], "B")], zones, ymax=100))
+    out.append(line_chart("Throttle (%)", L, [(A.d, [x * 100 for x in A.thr], "A"), (B.d, [x * 100 for x in B.thr], "B")], zones, ymax=100))
+    out.append("</section>")
+
+    # map
+    if A.has_map():
+        out.append("<section><h2>Track map: where B gains and loses against A</h2>"
+                   "<p class='note'>Red = B losing time, green = B gaining, grey = the same.</p>")
+        out.append(track_map(A, [B]))
+        out.append("</section>")
+
+    # corners
+    if zones:
+        out.append("<section><h2>Corners</h2><table><tr><th>Corner</th><th>Time B − A</th><th>Braking point B vs A</th>"
+                   "<th>Peak brake A / B</th><th>Min speed A / B</th><th>Trail score A / B</th><th>Lock-up A / B</th>"
+                   "<th>Exit wheelspin A / B</th></tr>")
+        yn = lambda v: "yes" if v else "–"
+        for z in zones:
+            a0 = max(0.0, z.start_d - 50)
+            b0 = z.exit_d if z.exit_d else z.end_d + 150
+            la, lb, ra, rb = B.time_at(a0), B.time_at(b0), A.time_at(a0), A.time_at(b0)
+            loss = None if None in (la, lb, ra, rb) else (lb - la) - (rb - ra)
+            m = _match(B.zones, z.start_d)
+            cls = "hot" if loss is not None and abs(loss) > 0.05 else ""
+            if m is None:
+                out.append(f"<tr class='{cls}'><td>T{z.idx}</td><td>{'' if loss is None else f'{loss:+.2f}s'}</td>"
+                           f"<td>no braking found on B</td><td>{z.peak * 100:.0f}% / –</td><td>{(z.min_v or 0):.0f} / –</td>"
+                           f"<td>{z.trail if z.trail is not None else '–'} / –</td><td>{yn(z.lock)} / –</td><td>{yn(z.spin)} / –</td></tr>")
+                continue
+            moved = m.start_d - z.start_d
+            moved_s = "same" if abs(moved) < 2 else (f"{moved:.0f} m later" if moved > 0 else f"{-moved:.0f} m earlier")
+            out.append(f"<tr class='{cls}'><td>T{z.idx}</td><td>{'' if loss is None else f'{loss:+.2f}s'}</td><td>{moved_s}</td>"
+                       f"<td>{z.peak * 100:.0f}% / {m.peak * 100:.0f}%</td><td>{(z.min_v or 0):.0f} / {(m.min_v or 0):.0f}</td>"
+                       f"<td>{z.trail if z.trail is not None else '–'} / {m.trail if m.trail is not None else '–'}</td>"
+                       f"<td>{yn(z.lock)} / {yn(m.lock)}</td><td>{yn(z.spin)} / {yn(m.spin)}</td></tr>")
+        out.append("</table><p class='note'>Time is measured from 50 m before lap A's braking point to the end of the "
+                   "corner exit. A positive time means B was slower there.</p></section>")
+    out.append("<footer><a href='/reports'>All tracks and cars</a></footer></main></body></html>")
+    return "".join(out)

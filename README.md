@@ -41,6 +41,7 @@ PhoneWheel also reads live data from the game. The phone **vibrates** for ABS, l
   - lap times, consistency and **theoretical best lap**;
   - a **track map heat map** of where you gain and lose time;
   - traces of your best lap against your last lap;
+  - **compare any two laps** (valid or invalid, from any session) side by side;
   - **trail-brake scores** per corner;
   - **where you lose the most time, and why**.
 - **Reference laps:** share your best laps, or load a friend's as the reference for your markers and delta.

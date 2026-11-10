@@ -205,6 +205,8 @@ Open **http://localhost:8765/report** on the PC, or tap **SETUP → Open session
 - the **theoretical best** table;
 - a corner table: braking point, peak pressure, minimum speed and average time lost per corner.
 
+**Compare any two laps:** in the lap table, pick a lap in column **A** and one in column **B**, then tap **Compare lap A with lap B**. Any laps work: valid or invalid, from any session at that track and car. The comparison shows both lap times and the gap, sector times, the time difference along the lap, speed, brake and throttle traces on top of each other, a track map of where B gains and loses against A, and a corner table (braking point, peak brake, minimum speed, trail score, lock-ups, wheelspin). Drop-downs at the top switch either lap without going back. The report stops refreshing itself while you're picking laps.
+
 All your tracks and cars are listed at http://localhost:8765/reports. The files are in the `reports` folder (next to PhoneWheel.exe, or Documents\PhoneWheel for the installed version): `<game>__<track>__<car>.html` is the report and `.laps.jsonl` next to it holds the laps. Reports from older versions (one file per session) stay in the list.
 
 **A good routine:**

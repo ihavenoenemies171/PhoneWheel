@@ -530,6 +530,22 @@ async def reports_list(request):
                              f"<h1>Reports</h1><p>One report per track and car, with every lap you've driven there.</p><ul>{items}</ul>", content_type="text/html")
 
 
+async def compare_laps(request):
+    """Compare any two laps of one track + car: /compare?r=<report name>&a=<lap>&b=<lap>"""
+    base = os.path.basename(request.query.get("r", ""))
+    path = os.path.join(APP_DIR, "reports", base + ".laps.jsonl")
+    if not base or not os.path.isfile(path):
+        raise web.HTTPNotFound(text="No laps saved for that track and car yet.")
+    def num(k):
+        try:
+            return int(request.query.get(k, ""))
+        except ValueError:
+            return None
+    laps, _ = await asyncio.to_thread(report.load_laps, path)
+    page = await asyncio.to_thread(report.compare_page, laps, num("a"), num("b"), base)
+    return web.Response(text=page, content_type="text/html", headers={"Cache-Control": "no-cache"})
+
+
 async def report_file(request):
     name = os.path.basename(request.match_info["name"])
     path = os.path.join(APP_DIR, "reports", name)
@@ -744,6 +760,7 @@ def main():
     app.router.add_post("/laps/remove", laps_remove)
     app.router.add_get("/reports", reports_list)
     app.router.add_get("/reports/{name}", report_file)
+    app.router.add_get("/compare", compare_laps)
     app.router.add_static("/", WEB, show_index=False)
     app.on_startup.append(on_startup)
     app.on_cleanup.append(on_cleanup)
